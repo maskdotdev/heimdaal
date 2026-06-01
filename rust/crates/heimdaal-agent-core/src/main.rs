@@ -19,7 +19,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 
 const SCHEMA_VERSION: &str = "heimdaal.review-run.v1";
-const DEFAULT_MODEL: &str = "gpt-4.1-nano";
+const DEFAULT_MODEL: &str = "gpt-5-nano";
 
 #[derive(Parser, Debug)]
 #[command(name = "heimdaal-agent-core")]
