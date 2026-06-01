@@ -89,7 +89,7 @@ impl ConcurrentJobRuntime {
             tool_calls: tool_counts.total(),
             tool_counts,
             findings: self.tools.findings.len(),
-            elapsed_ms: started.elapsed().as_millis() as u64,
+            elapsed_ms: (started.elapsed().as_micros().div_ceil(1000) as u64).max(1),
             input_tokens: tokens.input_tokens,
             output_tokens: tokens.output_tokens,
             total_tokens: tokens.total_tokens,

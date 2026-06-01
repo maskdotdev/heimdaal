@@ -93,8 +93,7 @@ impl RepoSnapshot {
             .parents(false)
             .git_ignore(false)
             .git_exclude(false)
-            .follow_links(false)
-            .max_filesize(Some(policy.max_file_bytes as u64 + 1));
+            .follow_links(false);
 
         for entry in walker.build() {
             let entry = match entry {
@@ -274,6 +273,9 @@ impl RepoSnapshot {
         max_bytes: usize,
     ) -> RuntimeResult<(Vec<u8>, bool)> {
         let file = self.file(file_id)?;
+        if !file.is_text_candidate && file.size > max_bytes as u64 {
+            return Err(RuntimeError::LimitExceeded { kind: "file_bytes" });
+        }
         if !file.is_text_candidate {
             return Err(RuntimeError::InvalidInput(
                 "file is not text-readable".to_string(),
@@ -369,6 +371,9 @@ fn is_denied(policy: &PathPolicyV1, clean: &Path) -> bool {
 
 fn is_allowed(policy: &PathPolicyV1, clean: &Path) -> bool {
     policy.allowed_roots.iter().any(|root| {
+        if root == Path::new(".") {
+            return true;
+        }
         let Ok(root) = RepoPath::from_path(root.clone()) else {
             return false;
         };

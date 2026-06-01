@@ -78,6 +78,9 @@ impl RepoPath {
         if input.as_bytes().contains(&0) {
             return Err(RuntimeError::RepoAccessDenied);
         }
+        if input.contains(':') {
+            return Err(RuntimeError::RepoAccessDenied);
+        }
         let path = Path::new(input);
         let mut clean = PathBuf::new();
         for component in path.components() {
