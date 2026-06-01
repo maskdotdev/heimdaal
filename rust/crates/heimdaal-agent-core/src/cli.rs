@@ -7,6 +7,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 
 use crate::bench::run_bench;
+use crate::concurrent::bench::{run_compare, ConcurrentBenchArgs};
 use crate::contracts::*;
 use crate::runtime::{run_review, EventEmitter};
 use crate::util::{redact_known_secrets, DEFAULT_MODEL, SCHEMA_VERSION};
@@ -25,6 +26,8 @@ pub(crate) enum Command {
     Run(RunArgs),
     /// Convenience benchmark wrapper that builds a ReviewRunJobV1 for a repo.
     Bench(BenchArgs),
+    /// Compare the synchronous MVP tool path against the async concurrent runtime.
+    CompareConcurrent(ConcurrentBenchArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -112,6 +115,13 @@ pub(crate) fn run_main() -> Result<i32> {
                     report.completed_sessions,
                     report.sessions
                 );
+            }
+            Ok(0)
+        }
+        Command::CompareConcurrent(args) => {
+            let report = run_compare(args)?;
+            if !report.concurrent.benchmark_valid {
+                bail!("concurrent comparison proof gates failed");
             }
             Ok(0)
         }

@@ -4,6 +4,7 @@
 // V1 contracts intentionally include protocol states not all exercised by the MVP benchmark.
 mod bench;
 mod cli;
+mod concurrent;
 mod contracts;
 mod model;
 mod repo;
