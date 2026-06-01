@@ -1061,6 +1061,12 @@ struct ModelDecision {
 struct ModelClientV1 {
     http: reqwest::blocking::Client,
     artifacts: Arc<ArtifactStore>,
+    default_profile_id: String,
+    profiles: HashMap<String, ResolvedModelProfileV1>,
+}
+
+#[derive(Debug)]
+struct ResolvedModelProfileV1 {
     profile: ModelProfileRefV1,
     api_key: String,
     base_url: String,
@@ -1068,38 +1074,52 @@ struct ModelClientV1 {
 
 impl ModelClientV1 {
     fn from_job(job: &ReviewRunJobV1, artifacts: Arc<ArtifactStore>) -> Result<Self> {
-        let profile = job
-            .model_profiles
-            .iter()
-            .find(|profile| profile.id == job.default_model_profile_id)
-            .or_else(|| job.model_profiles.first())
-            .ok_or_else(|| anyhow!("ReviewRunJobV1 must include at least one model profile"))?
-            .clone();
+        if job.model_profiles.is_empty() {
+            bail!("ReviewRunJobV1 must include at least one model profile");
+        }
 
-        let api_key = resolve_credential_ref(&profile.credential_ref)?;
-        let base_url = env::var("OAI_BASE_URL")
-            .or_else(|_| env::var("OPENAI_BASE_URL"))
-            .unwrap_or_else(|_| "https://api.openai.com/v1".to_string())
-            .trim_end_matches('/')
-            .to_string();
+        let mut profiles = HashMap::new();
+        for profile in &job.model_profiles {
+            let api_key = resolve_credential_ref(&profile.credential_ref)?;
+            let base_url = env::var("OAI_BASE_URL")
+                .or_else(|_| env::var("OPENAI_BASE_URL"))
+                .unwrap_or_else(|_| "https://api.openai.com/v1".to_string())
+                .trim_end_matches('/')
+                .to_string();
+            profiles.insert(
+                profile.id.clone(),
+                ResolvedModelProfileV1 {
+                    profile: profile.clone(),
+                    api_key,
+                    base_url,
+                },
+            );
+        }
+
+        if !profiles.contains_key(&job.default_model_profile_id) {
+            bail!(
+                "defaultModelProfileId {} does not exist in modelProfiles",
+                job.default_model_profile_id
+            );
+        }
 
         Ok(Self {
             http: reqwest::blocking::Client::builder()
                 .timeout(Duration::from_secs(60))
                 .build()?,
             artifacts,
-            profile,
-            api_key,
-            base_url,
+            default_profile_id: job.default_model_profile_id.clone(),
+            profiles,
         })
     }
 
     fn next_action(&self, session: &AgentSession, repo: &RepoContext) -> Result<ModelDecision> {
-        let body = self.request_body(session, repo);
+        let profile = self.profile_for_session(session)?;
+        let body = self.request_body(session, repo, profile);
         let response = self
             .http
-            .post(format!("{}/chat/completions", self.base_url))
-            .bearer_auth(&self.api_key)
+            .post(format!("{}/chat/completions", profile.base_url))
+            .bearer_auth(&profile.api_key)
             .json(&body)
             .send()
             .context("failed to send OAI-compatible chat completion request")?;
@@ -1111,7 +1131,7 @@ impl ModelClientV1 {
                 .unwrap_or_else(|_| "<unreadable response>".to_string());
             return Err(anyhow!(
                 "OAI-compatible request failed with {status}: {}",
-                redact_known_secrets(&text, &[self.api_key.as_str()])
+                redact_known_secrets(&text, &[profile.api_key.as_str()])
             ));
         }
 
@@ -1142,15 +1162,34 @@ impl ModelClientV1 {
         Ok(ModelDecision { action, usage })
     }
 
-    fn request_body(&self, session: &AgentSession, repo: &RepoContext) -> Value {
-        let token_param =
-            if self.profile.model.starts_with("gpt-5") || self.profile.model.starts_with("o") {
-                "max_completion_tokens"
-            } else {
-                "max_tokens"
-            };
+    fn profile_for_session(&self, session: &AgentSession) -> Result<&ResolvedModelProfileV1> {
+        self.profiles
+            .get(&session.model_profile_id)
+            .or_else(|| self.profiles.get(&self.default_profile_id))
+            .ok_or_else(|| anyhow!("missing model profile {}", session.model_profile_id))
+    }
+
+    fn default_model(&self) -> String {
+        self.profiles
+            .get(&self.default_profile_id)
+            .map(|profile| profile.profile.model.clone())
+            .unwrap_or_else(|| "<missing-model>".to_string())
+    }
+
+    fn request_body(
+        &self,
+        session: &AgentSession,
+        repo: &RepoContext,
+        resolved: &ResolvedModelProfileV1,
+    ) -> Value {
+        let profile = &resolved.profile;
+        let token_param = if profile.model.starts_with("gpt-5") || profile.model.starts_with("o") {
+            "max_completion_tokens"
+        } else {
+            "max_tokens"
+        };
         let mut body = json!({
-            "model": self.profile.model,
+            "model": profile.model,
             "messages": [
                 {
                     "role": "system",
@@ -1162,14 +1201,14 @@ impl ModelClientV1 {
                 }
             ],
             "tools": oai_tool_specs_for_session(session),
-            "tool_choice": match self.profile.tool_calling_mode {
+            "tool_choice": match profile.tool_calling_mode {
                 ToolCallingMode::Required => "required",
                 ToolCallingMode::Auto => "auto",
             }
         });
-        body[token_param] = json!(self.profile.max_output_tokens);
-        if !(self.profile.model.starts_with("gpt-5") || self.profile.model.starts_with("o")) {
-            body["temperature"] = json!(self.profile.temperature.unwrap_or(0.0));
+        body[token_param] = json!(profile.max_output_tokens);
+        if !(profile.model.starts_with("gpt-5") || profile.model.starts_with("o")) {
+            body["temperature"] = json!(profile.temperature.unwrap_or(0.0));
         }
         body
     }
@@ -2978,7 +3017,7 @@ fn run_review(job: ReviewRunJobV1, emitter: Option<Arc<EventEmitter>>) -> Result
         .count();
 
     let mut report = RuntimeReport {
-        model: runtime.model.profile.model.clone(),
+        model: runtime.model.default_model(),
         sessions: job.personas.len(),
         completed_sessions: reports
             .iter()
