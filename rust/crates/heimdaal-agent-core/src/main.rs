@@ -1157,7 +1157,7 @@ impl ModelClientV1 {
                     "content": self.render_prompt(session, repo)
                 }
             ],
-            "tools": oai_tool_specs(),
+            "tools": oai_tool_specs_for_session(session),
             "tool_choice": match self.profile.tool_calling_mode {
                 ToolCallingMode::Required => "required",
                 ToolCallingMode::Auto => "auto",
@@ -1236,7 +1236,7 @@ impl ModelClientV1 {
             }
         }
 
-        text.push_str("\nAvailable tools are read-only. Use record_finding only when the session already has concrete evidence refs. Use finish when the review objective is complete or budget is exhausted.\n");
+        text.push_str("\nAvailable tools are read-only. Finish and record_finding become available only after this session has evidence from read_diff, read_file/read_head_file, and search_text. Choose the next evidence-gathering tool yourself based on what is missing and what you have learned.\n");
         text
     }
 }
@@ -1378,58 +1378,63 @@ fn required_str<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
         .ok_or_else(|| anyhow!("missing string argument {key}"))
 }
 
-fn oai_tool_specs() -> Vec<Value> {
-    vec![
-        tool_spec(
-            "list_changed_files",
-            "List files changed in the review scope.",
-            json!({}),
-        ),
-        tool_spec(
-            "read_diff",
-            "Read the app-provided review diff manifest.",
-            json!({}),
-        ),
-        tool_spec(
-            "list_files",
-            "List text/code files under the allowed repository roots.",
-            json!({}),
-        ),
-        tool_spec(
-            "read_file",
-            "Read a review/worktree file by repo-relative path.",
-            json!({"path": {"type": "string"}}),
-        ),
-        tool_spec(
-            "read_base_file",
-            "Read a base revision file by repo-relative path when base snapshots are available.",
-            json!({"path": {"type": "string"}}),
-        ),
-        tool_spec(
-            "read_head_file",
-            "Read a head/review revision file by repo-relative path.",
-            json!({"path": {"type": "string"}}),
-        ),
-        tool_spec(
+fn oai_tool_specs_for_session(session: &AgentSession) -> Vec<Value> {
+    let has_read_diff = session_has_tool_result(session, ToolName::ReadDiff);
+    let has_read_file = session_has_tool_result(session, ToolName::ReadFile)
+        || session_has_tool_result(session, ToolName::ReadHeadFile);
+    let has_search = session_has_tool_result(session, ToolName::SearchText);
+
+    if !has_read_diff {
+        if session_has_tool_result(session, ToolName::ListChangedFiles) {
+            return vec![tool_spec(
+                "read_diff",
+                "Read the app-provided review diff manifest.",
+                json!({}),
+            )];
+        }
+        return vec![
+            tool_spec(
+                "list_changed_files",
+                "List files changed in the review scope.",
+                json!({}),
+            ),
+            tool_spec(
+                "read_diff",
+                "Read the app-provided review diff manifest.",
+                json!({}),
+            ),
+        ];
+    }
+
+    if !has_read_file {
+        return vec![
+            tool_spec(
+                "read_file",
+                "Read a review/worktree file by repo-relative path from the diff or file list.",
+                json!({"path": {"type": "string"}}),
+            ),
+            tool_spec(
+                "read_head_file",
+                "Read a head/review revision file by repo-relative path from the diff or file list.",
+                json!({"path": {"type": "string"}}),
+            ),
+            tool_spec(
+                "list_files",
+                "List text/code files under the allowed repository roots if you need a path.",
+                json!({}),
+            ),
+        ];
+    }
+
+    if !has_search {
+        return vec![tool_spec(
             "search_text",
             "Search repository text for simple literal terms or terms separated by |.",
             json!({"query": {"type": "string"}}),
-        ),
-        tool_spec(
-            "find_related_files",
-            "Find files with similar stem or nearby path.",
-            json!({"path": {"type": "string"}}),
-        ),
-        tool_spec(
-            "find_tests_for_file",
-            "Find likely tests for a repo-relative source file.",
-            json!({"path": {"type": "string"}}),
-        ),
-        tool_spec(
-            "list_imports",
-            "List import/use/require lines for a repo-relative file.",
-            json!({"path": {"type": "string"}}),
-        ),
+        )];
+    }
+
+    vec![
         tool_spec(
             "record_finding",
             "Record one evidence-backed candidate review finding.",
@@ -1439,19 +1444,20 @@ fn oai_tool_specs() -> Vec<Value> {
             }),
         ),
         tool_spec(
-            "challenge_finding",
-            "Challenge or validate a finding by id.",
-            json!({
-                "finding_id": {"type": "string"},
-                "rationale": {"type": "string"}
-            }),
-        ),
-        tool_spec(
             "finish",
             "Finish this review session.",
             json!({"reason": {"type": "string"}}),
         ),
     ]
+}
+
+fn session_has_tool_result(session: &AgentSession, expected: ToolName) -> bool {
+    session.events.iter().any(|event| {
+        matches!(
+            event,
+            AgentEvent::ToolResult { tool, .. } if *tool == expected
+        )
+    })
 }
 
 fn tool_spec(name: &str, description: &str, properties: Value) -> Value {
@@ -1779,9 +1785,20 @@ impl ToolRegistry {
             ModelAction::ListChangedFiles => self.list_changed_files(&tool_call_id, session)?,
             ModelAction::ReadDiff => self.read_diff(&tool_call_id, session)?,
             ModelAction::ListFiles => self.list_files(&tool_call_id, session)?,
-            ModelAction::ReadFile(path) | ModelAction::ReadHeadFile(path) => {
-                self.read_file(&tool_call_id, session, &path, EvidenceRevision::Review)?
-            }
+            ModelAction::ReadFile(path) => self.read_file(
+                &tool_call_id,
+                session,
+                ToolName::ReadFile,
+                &path,
+                EvidenceRevision::Review,
+            )?,
+            ModelAction::ReadHeadFile(path) => self.read_file(
+                &tool_call_id,
+                session,
+                ToolName::ReadHeadFile,
+                &path,
+                EvidenceRevision::Review,
+            )?,
             ModelAction::ReadBaseFile(path) => self.snapshot_unavailable(
                 &tool_call_id,
                 session,
@@ -1960,6 +1977,7 @@ impl ToolRegistry {
         &self,
         tool_call_id: &str,
         _session: &AgentSession,
+        tool_name: ToolName,
         relative: &Path,
         revision: EvidenceRevision,
     ) -> Result<ToolOutcome> {
@@ -1975,7 +1993,7 @@ impl ToolRegistry {
         {
             return Ok(ToolOutcome::artifact(
                 tool_call_id.to_string(),
-                ToolName::ReadFile,
+                tool_name,
                 artifact_id,
                 format!("cache hit {}", clean.display()),
                 0,
@@ -2003,10 +2021,7 @@ impl ToolRegistry {
             .insert(clean, artifact_id);
         let mut outcome = ToolOutcome::artifact(
             tool_call_id.to_string(),
-            match revision {
-                EvidenceRevision::Base => ToolName::ReadBaseFile,
-                _ => ToolName::ReadFile,
-            },
+            tool_name,
             artifact_id,
             summary,
             bytes_read,
@@ -2530,6 +2545,7 @@ impl AgentRuntime {
             self.record_tool(&mut session, outcome);
 
             if tool == ToolName::Finish
+                || tool == ToolName::RecordFinding
                 || tool_counts.total() >= session.budget.max_tool_calls
                 || turn + 1 >= session.budget.max_turns
             {
