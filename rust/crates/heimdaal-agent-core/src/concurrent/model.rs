@@ -14,7 +14,7 @@ use crate::contracts::{ModelProfileRefV1, TokenUsage, ToolCallingMode, ToolName}
 use crate::model::resolve_credential_ref;
 
 #[async_trait]
-pub(crate) trait ConcurrentModelClient: Send + Sync {
+pub trait ConcurrentModelClient: Send + Sync {
     async fn complete(
         &self,
         session_id: &SessionId,
@@ -22,6 +22,40 @@ pub(crate) trait ConcurrentModelClient: Send + Sync {
         turn_id: TurnId,
         cancel: CancellationToken,
     ) -> RuntimeResult<ModelTurn>;
+}
+
+#[async_trait]
+pub trait ConcurrentModelRouter: Send + Sync {
+    async fn client_for(
+        &self,
+        scope: &SessionScope,
+    ) -> RuntimeResult<Arc<dyn ConcurrentModelClient>>;
+}
+
+pub struct StaticModelRouter {
+    client: Arc<dyn ConcurrentModelClient>,
+}
+
+impl StaticModelRouter {
+    pub fn new(client: Arc<dyn ConcurrentModelClient>) -> Self {
+        Self { client }
+    }
+}
+
+impl std::fmt::Debug for StaticModelRouter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StaticModelRouter").finish_non_exhaustive()
+    }
+}
+
+#[async_trait]
+impl ConcurrentModelRouter for StaticModelRouter {
+    async fn client_for(
+        &self,
+        _scope: &SessionScope,
+    ) -> RuntimeResult<Arc<dyn ConcurrentModelClient>> {
+        Ok(Arc::clone(&self.client))
+    }
 }
 
 #[derive(Debug)]
@@ -96,18 +130,18 @@ impl ConcurrentModelClient for MockReviewModel {
 }
 
 #[derive(Debug)]
-pub(crate) struct ModelLimiter {
+pub struct ModelLimiter {
     global: Semaphore,
 }
 
 impl ModelLimiter {
-    pub(crate) fn new(global_concurrency: usize) -> Self {
+    pub fn new(global_concurrency: usize) -> Self {
         Self {
             global: Semaphore::new(global_concurrency.max(1)),
         }
     }
 
-    pub(crate) async fn acquire(&self) -> RuntimeResult<tokio::sync::SemaphorePermit<'_>> {
+    pub async fn acquire(&self) -> RuntimeResult<tokio::sync::SemaphorePermit<'_>> {
         self.global
             .acquire()
             .await
@@ -116,7 +150,7 @@ impl ModelLimiter {
 }
 
 #[derive(Debug)]
-pub(crate) struct OpenAiChatCompletionsClient {
+pub struct OpenAiChatCompletionsClient {
     http: reqwest::Client,
     profile: ModelProfileRefV1,
     api_key: String,

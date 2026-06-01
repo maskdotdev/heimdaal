@@ -8,7 +8,7 @@ use clap::Parser;
 
 use crate::bench::{preferred_bench_file_score, synthetic_changed_files};
 use crate::concurrent::contracts::*;
-use crate::concurrent::model::MockReviewModel;
+use crate::concurrent::model::{MockReviewModel, StaticModelRouter};
 use crate::concurrent::repo::RepoSnapshot;
 use crate::concurrent::runtime::{ConcurrentJobRuntime, ConcurrentSessionSpec};
 use crate::concurrent::tools::ToolEngine;
@@ -108,24 +108,28 @@ fn run_concurrent(
         target_path.to_string_lossy().into_owned(),
         query.to_string(),
     ));
+    let model_router = Arc::new(StaticModelRouter::new(model));
     let runtime = ConcurrentJobRuntime {
         snapshot,
-        model,
+        model_router,
         tools,
         limits,
     };
     let session_specs = (0..sessions)
         .map(|index| ConcurrentSessionSpec {
-            id: SessionId(format!("parallel-session-{index}")),
-            role: Role::for_index(index),
-            objective: "Gather diff, file, and search evidence with concurrent tools.".to_string(),
-            allowed_tools: ToolMask::review_read_only(),
-            allowed_custom_tools: Vec::new(),
-            budget: AgentBudget {
-                max_turns: 4,
-                max_tool_calls: 8,
-                max_prompt_tokens: 32_000,
-                max_output_tokens: 512,
+            scope: SessionScope {
+                id: SessionId(format!("parallel-session-{index}")),
+                role: Role::for_index(index),
+                objective: "Gather diff, file, and search evidence with concurrent tools."
+                    .to_string(),
+                model_profile_id: Some("mock".to_string()),
+                capabilities: CapabilitySet::review_read_only(),
+                budget: AgentBudget {
+                    max_turns: 4,
+                    max_tool_calls: 8,
+                    max_prompt_tokens: 32_000,
+                    max_output_tokens: 512,
+                },
             },
         })
         .collect::<Vec<_>>();
@@ -240,6 +244,7 @@ fn run_sync_baseline(
             tool_errors: errors,
             artifact_cache_hits: 0,
         },
+        tool_metrics: Default::default(),
         benchmark_valid: false,
         benchmark_failures: Vec::new(),
     };

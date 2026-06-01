@@ -10,9 +10,9 @@
     "use|fn|struct"
   ],
   "exit_code": 0,
-  "duration_s": 0.752,
+  "duration_s": 0.79,
   "peak": {
-    "rss_mb": 9.77,
+    "rss_mb": 8.62,
     "pss_mb": null,
     "uss_mb": null,
     "process_count": 1
@@ -22,7 +22,7 @@
     "pss_mb": null,
     "uss_mb": null,
     "process_count": 0,
-    "t": 0.752
+    "t": 0.79
   },
   "samples": [
     {
@@ -30,154 +30,161 @@
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.007
+      "t": 0.006
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.033
+      "t": 0.038
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.065
+      "t": 0.068
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.099
+      "t": 0.1
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.135
+      "t": 0.137
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.168
+      "t": 0.173
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.2
+      "t": 0.207
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.234
+      "t": 0.242
     },
     {
-      "rss_mb": 6.11,
+      "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
       "t": 0.28
     },
     {
-      "rss_mb": 8.39,
+      "rss_mb": 4.44,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.339
+      "t": 0.313
     },
     {
-      "rss_mb": 9.67,
+      "rss_mb": 7.11,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.374
+      "t": 0.369
     },
     {
-      "rss_mb": 9.75,
+      "rss_mb": 8.55,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.415
+      "t": 0.401
     },
     {
-      "rss_mb": 9.75,
+      "rss_mb": 8.58,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.449
+      "t": 0.436
     },
     {
-      "rss_mb": 9.75,
+      "rss_mb": 8.61,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.476
+      "t": 0.471
     },
     {
-      "rss_mb": 9.77,
+      "rss_mb": 8.61,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.512
+      "t": 0.507
     },
     {
-      "rss_mb": 9.77,
+      "rss_mb": 8.62,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.545
+      "t": 0.543
     },
     {
-      "rss_mb": 9.77,
+      "rss_mb": 8.62,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.58
+      "t": 0.578
     },
     {
-      "rss_mb": 9.77,
+      "rss_mb": 8.62,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.615
+      "t": 0.613
     },
     {
-      "rss_mb": 9.77,
+      "rss_mb": 8.62,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.65
+      "t": 0.649
     },
     {
-      "rss_mb": 9.77,
+      "rss_mb": 8.62,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.683
+      "t": 0.684
     },
     {
-      "rss_mb": 9.77,
+      "rss_mb": 8.62,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.719
+      "t": 0.72
+    },
+    {
+      "rss_mb": 8.62,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.755
     },
     {
       "rss_mb": 0.0,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 0,
-      "t": 0.752
+      "t": 0.79
     }
   ],
   "stdout_lines": [
@@ -205,12 +212,12 @@
     "      \"finish\": 0",
     "    },",
     "    \"findings\": 50,",
-    "    \"elapsedMs\": 77,",
+    "    \"elapsedMs\": 80,",
     "    \"inputTokens\": 0,",
     "    \"outputTokens\": 0,",
     "    \"totalTokens\": 0,",
-    "    \"artifacts\": 104,",
-    "    \"artifactBytes\": 1146238,",
+    "    \"artifacts\": 106,",
+    "    \"artifactBytes\": 1148732,",
     "    \"counters\": {",
     "      \"searchScans\": 50,",
     "      \"searchDedupeWaiters\": 0,",
@@ -220,6 +227,7 @@
     "      \"toolErrors\": 0,",
     "      \"artifactCacheHits\": 0",
     "    },",
+    "    \"toolMetrics\": {},",
     "    \"benchmarkValid\": true,",
     "    \"benchmarkFailures\": []",
     "  },",
@@ -258,12 +266,46 @@
     "      \"readCacheHits\": 0,",
     "      \"readFileReads\": 1,",
     "      \"toolErrors\": 0,",
-    "      \"artifactCacheHits\": 59",
+    "      \"artifactCacheHits\": 56",
+    "    },",
+    "    \"toolMetrics\": {",
+    "      \"read_diff\": {",
+    "        \"calls\": 50,",
+    "        \"successes\": 50,",
+    "        \"errors\": 0,",
+    "        \"cacheHits\": 26,",
+    "        \"deduped\": 23,",
+    "        \"outputBytes\": 61700",
+    "      },",
+    "      \"read_file\": {",
+    "        \"calls\": 50,",
+    "        \"successes\": 50,",
+    "        \"errors\": 0,",
+    "        \"cacheHits\": 30,",
+    "        \"deduped\": 19,",
+    "        \"outputBytes\": 62350",
+    "      },",
+    "      \"record_finding\": {",
+    "        \"calls\": 50,",
+    "        \"successes\": 50,",
+    "        \"errors\": 0,",
+    "        \"cacheHits\": 0,",
+    "        \"deduped\": 0,",
+    "        \"outputBytes\": 0",
+    "      },",
+    "      \"search_text\": {",
+    "        \"calls\": 50,",
+    "        \"successes\": 50,",
+    "        \"errors\": 0,",
+    "        \"cacheHits\": 0,",
+    "        \"deduped\": 49,",
+    "        \"outputBytes\": 1406700",
+    "      }",
     "    },",
     "    \"benchmarkValid\": true,",
     "    \"benchmarkFailures\": []",
     "  },",
-    "  \"speedup\": 11.0,",
+    "  \"speedup\": 11.428571428571429,",
     "  \"searchScanReduction\": 50.0",
     "}"
   ],

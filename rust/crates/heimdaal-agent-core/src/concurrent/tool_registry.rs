@@ -14,7 +14,7 @@ use crate::concurrent::repo::RepoSnapshot;
 use crate::contracts::ToolName;
 
 #[derive(Clone)]
-pub(crate) struct ToolRegistry {
+pub struct ToolRegistry {
     definitions: HashMap<ToolId, ToolDefinition>,
 }
 
@@ -27,7 +27,7 @@ impl fmt::Debug for ToolRegistry {
 }
 
 impl ToolRegistry {
-    pub(crate) fn review_defaults() -> RuntimeResult<Self> {
+    pub fn review_defaults() -> RuntimeResult<Self> {
         let mut registry = Self {
             definitions: HashMap::new(),
         };
@@ -79,7 +79,7 @@ impl ToolRegistry {
         Ok(registry)
     }
 
-    pub(crate) fn register_custom(
+    pub fn register_custom(
         &mut self,
         id: ToolId,
         description: impl Into<String>,
@@ -97,11 +97,11 @@ impl ToolRegistry {
         })
     }
 
-    pub(crate) fn definition(&self, id: &ToolId) -> Option<&ToolDefinition> {
+    pub fn definition(&self, id: &ToolId) -> Option<&ToolDefinition> {
         self.definitions.get(id)
     }
 
-    pub(crate) fn schemas(&self) -> Vec<ToolSchema> {
+    pub fn schemas(&self) -> Vec<ToolSchema> {
         let mut schemas = self
             .definitions
             .values()
@@ -145,12 +145,12 @@ impl ToolRegistry {
 }
 
 #[derive(Clone)]
-pub(crate) struct ToolDefinition {
-    pub(crate) id: ToolId,
-    pub(crate) description: String,
-    pub(crate) parameters: Value,
+pub struct ToolDefinition {
+    pub id: ToolId,
+    pub description: String,
+    pub parameters: Value,
     pub(crate) builtin: Option<ToolName>,
-    pub(crate) cacheable: bool,
+    pub cacheable: bool,
     pub(crate) handler: Option<Arc<dyn CustomToolHandler>>,
 }
 
@@ -167,14 +167,14 @@ impl fmt::Debug for ToolDefinition {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ToolSchema {
-    pub(crate) id: ToolId,
-    pub(crate) description: String,
-    pub(crate) parameters: Value,
+pub struct ToolSchema {
+    pub id: ToolId,
+    pub description: String,
+    pub parameters: Value,
 }
 
 #[async_trait]
-pub(crate) trait CustomToolHandler: Send + Sync {
+pub trait CustomToolHandler: Send + Sync {
     async fn execute(
         &self,
         context: CustomToolContext,
@@ -184,26 +184,26 @@ pub(crate) trait CustomToolHandler: Send + Sync {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CustomToolContext {
-    pub(crate) session_id: SessionId,
-    pub(crate) turn_id: TurnId,
-    pub(crate) call_id: ToolCallId,
-    pub(crate) tool_id: ToolId,
-    pub(crate) snapshot_id: SnapshotId,
+pub struct CustomToolContext {
+    pub session_id: SessionId,
+    pub turn_id: TurnId,
+    pub call_id: ToolCallId,
+    pub tool_id: ToolId,
+    pub snapshot_id: SnapshotId,
     pub(crate) snapshot: Arc<RepoSnapshot>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CustomToolOutput {
-    pub(crate) data: Option<Value>,
-    pub(crate) artifact: Option<CustomToolArtifact>,
-    pub(crate) limits: LimitInfo,
+pub struct CustomToolOutput {
+    pub data: Option<Value>,
+    pub artifact: Option<CustomToolArtifact>,
+    pub limits: LimitInfo,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct CustomToolArtifact {
-    pub(crate) key: ArtifactKey,
-    pub(crate) content: String,
+pub struct CustomToolArtifact {
+    pub key: ArtifactKey,
+    pub content: String,
 }
 
 fn object_parameters(properties: Value) -> RuntimeResult<Value> {

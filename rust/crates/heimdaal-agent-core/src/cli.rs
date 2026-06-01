@@ -92,7 +92,7 @@ pub(crate) fn run_json(args: RunArgs) -> Result<i32> {
     })
 }
 
-pub(crate) fn main_entry() {
+pub fn main_entry() {
     let code = match run_main() {
         Ok(code) => code,
         Err(error) => {

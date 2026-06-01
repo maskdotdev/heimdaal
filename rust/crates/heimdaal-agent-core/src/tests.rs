@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::concurrent::contracts::{
-    ArtifactKey, LimitInfo, ModelToolCall, RepoPath, RuntimeLimits, SessionId, ToolCallId,
-    ToolErrorCode, ToolId, TurnId,
+    ArtifactKey, CapabilitySet, FsScope, LimitInfo, ModelToolCall, RepoPath, RuntimeLimits,
+    SessionId, SessionScope, ToolCallId, ToolErrorCode, ToolGrant, ToolId, TurnId,
 };
 use crate::concurrent::repo::RepoSnapshot;
 use crate::concurrent::tool_registry::{
@@ -148,7 +148,7 @@ mod tests {
             .build()
             .unwrap();
         let results = runtime.block_on(engine.execute_batch(
-            SessionId("session".to_string()),
+            test_scope("session"),
             TurnId(0),
             vec![
                 ModelToolCall {
@@ -164,8 +164,6 @@ mod tests {
                     raw_arguments: "{}".to_string(),
                 },
             ],
-            ToolMask::review_read_only(),
-            &[],
             tokio_util::sync::CancellationToken::new(),
         ));
         assert_eq!(results.len(), 2);
@@ -197,9 +195,10 @@ mod tests {
             for index in 0..10 {
                 let engine = std::sync::Arc::clone(&engine);
                 joins.spawn(async move {
+                    let scope = test_scope(&format!("session-{index}"));
                     engine
                         .execute_batch(
-                            SessionId(format!("session-{index}")),
+                            scope,
                             TurnId(0),
                             vec![ModelToolCall {
                                 call_id: ToolCallId(format!("search-{index}")),
@@ -207,8 +206,6 @@ mod tests {
                                 name: ToolId::from(ToolName::SearchText),
                                 raw_arguments: r#"{"query":"needle"}"#.to_string(),
                             }],
-                            ToolMask::review_read_only(),
-                            &[],
                             tokio_util::sync::CancellationToken::new(),
                         )
                         .await
@@ -222,6 +219,66 @@ mod tests {
         });
         let counters = engine.snapshot_counters();
         assert_eq!(counters.search_scans, 1);
+    }
+
+    #[test]
+    fn concurrent_search_cache_is_scoped_by_filesystem_scope() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir(temp.path().join("src")).unwrap();
+        fs::write(temp.path().join("README.md"), "needle in root\n").unwrap();
+        fs::write(temp.path().join("src/lib.rs"), "needle in src\n").unwrap();
+        let change = test_change_with_file("src/lib.rs");
+        let policy = PathPolicyV1::bench(64, 20);
+        let (snapshot, _) = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
+        let limits = Arc::new(RuntimeLimits::standard(2, 64 * 1024, 20));
+        let engine = ToolEngine::new(snapshot, limits).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let root = runtime.block_on(engine.execute_batch(
+            test_scope("root-session"),
+            TurnId(0),
+            vec![ModelToolCall {
+                call_id: ToolCallId("root-search".to_string()),
+                index: 0,
+                name: ToolId::from(ToolName::SearchText),
+                raw_arguments: r#"{"query":"needle"}"#.to_string(),
+            }],
+            tokio_util::sync::CancellationToken::new(),
+        ));
+        assert!(root[0].ok);
+        assert_eq!(root[0].limits.searched_files, 2);
+
+        let mut scoped_capabilities = CapabilitySet::review_read_only();
+        scoped_capabilities.fs_scope = FsScope::subtree(RepoPath::parse("src").unwrap());
+        let scoped = runtime.block_on(engine.execute_batch(
+            test_scope_with_capabilities("src-session", scoped_capabilities),
+            TurnId(0),
+            vec![ModelToolCall {
+                call_id: ToolCallId("src-search".to_string()),
+                index: 0,
+                name: ToolId::from(ToolName::SearchText),
+                raw_arguments: r#"{"query":"needle"}"#.to_string(),
+            }],
+            tokio_util::sync::CancellationToken::new(),
+        ));
+        assert!(scoped[0].ok);
+        assert_eq!(scoped[0].limits.searched_files, 1);
+        let matches = scoped[0].data.as_ref().unwrap()["matches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        assert!(matches.iter().all(|line| line.starts_with("src/lib.rs:")));
+
+        let counters = engine.snapshot_counters();
+        assert_eq!(counters.search_scans, 2);
+        let metrics = engine.snapshot_tool_metrics();
+        assert_eq!(metrics["search_text"].calls, 2);
+        assert_eq!(metrics["search_text"].successes, 2);
     }
 
     #[test]
@@ -256,7 +313,7 @@ mod tests {
             .build()
             .unwrap();
         let denied = runtime.block_on(engine.execute_batch(
-            SessionId("session".to_string()),
+            test_scope("session"),
             TurnId(0),
             vec![ModelToolCall {
                 call_id: ToolCallId("denied-custom".to_string()),
@@ -264,8 +321,6 @@ mod tests {
                 name: tool_id.clone(),
                 raw_arguments: r#"{"value":"ok"}"#.to_string(),
             }],
-            ToolMask::review_read_only(),
-            &[],
             tokio_util::sync::CancellationToken::new(),
         ));
         assert_eq!(denied.len(), 1);
@@ -275,8 +330,10 @@ mod tests {
             ToolErrorCode::ToolNotAllowed
         );
 
+        let mut allowed_capabilities = CapabilitySet::review_read_only();
+        allowed_capabilities.grant_tool(tool_id.clone(), ToolGrant::allow_custom_read_only());
         let results = runtime.block_on(engine.execute_batch(
-            SessionId("session".to_string()),
+            test_scope_with_capabilities("session", allowed_capabilities),
             TurnId(0),
             vec![ModelToolCall {
                 call_id: ToolCallId("custom".to_string()),
@@ -284,8 +341,6 @@ mod tests {
                 name: tool_id.clone(),
                 raw_arguments: r#"{"value":"ok"}"#.to_string(),
             }],
-            ToolMask::review_read_only(),
-            std::slice::from_ref(&tool_id),
             tokio_util::sync::CancellationToken::new(),
         ));
         assert_eq!(results.len(), 1);
@@ -295,6 +350,10 @@ mod tests {
         let data = results[0].data.as_ref().unwrap().to_string();
         assert!(data.contains("[REDACTED]"));
         assert!(!data.contains("AKIA1234567890ABCDEF"));
+        let metrics = engine.snapshot_tool_metrics();
+        assert_eq!(metrics["host_custom_check"].calls, 2);
+        assert_eq!(metrics["host_custom_check"].successes, 1);
+        assert_eq!(metrics["host_custom_check"].errors, 1);
     }
 
     #[derive(Debug)]
@@ -321,6 +380,26 @@ mod tests {
                 }),
                 limits: LimitInfo::default(),
             })
+        }
+    }
+
+    fn test_scope(id: &str) -> SessionScope {
+        test_scope_with_capabilities(id, CapabilitySet::review_read_only())
+    }
+
+    fn test_scope_with_capabilities(id: &str, capabilities: CapabilitySet) -> SessionScope {
+        SessionScope {
+            id: SessionId(id.to_string()),
+            role: Role::Generalist,
+            objective: "test review scope".to_string(),
+            model_profile_id: Some("test-model".to_string()),
+            capabilities,
+            budget: AgentBudget {
+                max_turns: 4,
+                max_tool_calls: 8,
+                max_prompt_tokens: 32_000,
+                max_output_tokens: 512,
+            },
         }
     }
 

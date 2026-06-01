@@ -1,16 +1,17 @@
+use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::contracts::{TokenUsage, ToolCounts, ToolMask, ToolName};
+use crate::contracts::{AgentBudget, Role, TokenUsage, ToolCounts, ToolName};
 
-pub(crate) const CONCURRENT_CONTRACT_VERSION: u16 = 1;
-pub(crate) const REDACTION_POLICY_VERSION: u16 = 1;
+pub const CONCURRENT_CONTRACT_VERSION: u16 = 1;
+pub const REDACTION_POLICY_VERSION: u16 = 1;
 
 #[derive(Debug, Error)]
-pub(crate) enum RuntimeError {
+pub enum RuntimeError {
     #[error("invalid input: {0}")]
     InvalidInput(String),
     #[error("resource limit exceeded: {kind}")]
@@ -32,46 +33,46 @@ pub(crate) enum RuntimeError {
     Invariant(&'static str),
 }
 
-pub(crate) type RuntimeResult<T> = Result<T, RuntimeError>;
+pub type RuntimeResult<T> = Result<T, RuntimeError>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub(crate) struct SnapshotId(pub(crate) String);
+pub struct SnapshotId(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub(crate) struct ArtifactKey(pub(crate) String);
+pub struct ArtifactKey(pub String);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub(crate) struct FileId(pub(crate) u32);
+pub struct FileId(pub u32);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub(crate) struct ArtifactId(pub(crate) String);
+pub struct ArtifactId(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub(crate) struct EvidenceId(pub(crate) String);
+pub struct EvidenceId(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub(crate) struct ToolCallId(pub(crate) String);
+pub struct ToolCallId(pub String);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub(crate) struct TurnId(pub(crate) u32);
+pub struct TurnId(pub u32);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub(crate) struct SessionId(pub(crate) String);
+pub struct SessionId(pub String);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub(crate) struct ToolId(String);
+pub struct ToolId(String);
 
 impl ToolId {
-    pub(crate) fn parse(input: &str) -> RuntimeResult<Self> {
+    pub fn parse(input: &str) -> RuntimeResult<Self> {
         if input.is_empty() || input.len() > 64 {
             return Err(RuntimeError::InvalidInput(
                 "invalid tool id length".to_string(),
@@ -90,7 +91,7 @@ impl ToolId {
         Self(tool.as_str().to_string())
     }
 
-    pub(crate) fn as_str(&self) -> &str {
+    pub fn as_str(&self) -> &str {
         &self.0
     }
 
@@ -120,12 +121,12 @@ impl From<ToolName> for ToolId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub(crate) struct RepoPath(PathBuf);
+pub struct RepoPath(PathBuf);
 
 impl RepoPath {
-    pub(crate) fn parse(input: &str) -> RuntimeResult<Self> {
+    pub fn parse(input: &str) -> RuntimeResult<Self> {
         if input.is_empty() {
             return Err(RuntimeError::InvalidInput("repo path is empty".to_string()));
         }
@@ -152,25 +153,236 @@ impl RepoPath {
         Ok(Self(clean))
     }
 
-    pub(crate) fn from_path(path: PathBuf) -> RuntimeResult<Self> {
+    pub fn from_path(path: PathBuf) -> RuntimeResult<Self> {
         let text = path
             .to_str()
             .ok_or_else(|| RuntimeError::InvalidInput("repo path is not UTF-8".to_string()))?;
         Self::parse(text)
     }
 
-    pub(crate) fn as_path(&self) -> &Path {
+    pub fn as_path(&self) -> &Path {
         &self.0
     }
 
-    pub(crate) fn display(&self) -> String {
+    pub fn display(&self) -> String {
         self.0.to_string_lossy().into_owned()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ScopeKey(String);
+
+impl ScopeKey {
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum ConversationItem {
+pub struct FsScope {
+    pub cwd: Option<RepoPath>,
+    pub allowed_roots: Vec<RepoPath>,
+    pub candidate_set_hash: String,
+}
+
+impl FsScope {
+    pub fn repo_root() -> Self {
+        Self {
+            cwd: None,
+            allowed_roots: Vec::new(),
+            candidate_set_hash: "root".to_string(),
+        }
+    }
+
+    pub fn subtree(path: RepoPath) -> Self {
+        let candidate_set_hash = stable_id(&[&path.display()]);
+        Self {
+            cwd: Some(path.clone()),
+            allowed_roots: vec![path],
+            candidate_set_hash,
+        }
+    }
+
+    pub fn allows(&self, path: &RepoPath) -> bool {
+        if let Some(cwd) = &self.cwd {
+            if path.as_path() != cwd.as_path() && !path.as_path().starts_with(cwd.as_path()) {
+                return false;
+            }
+        }
+        if self.allowed_roots.is_empty() {
+            return true;
+        }
+        self.allowed_roots.iter().any(|root| {
+            path.as_path() == root.as_path() || path.as_path().starts_with(root.as_path())
+        })
+    }
+
+    pub fn scope_key(&self, snapshot_id: &SnapshotId) -> ScopeKey {
+        let mut owned_parts = vec![snapshot_id.0.clone(), self.candidate_set_hash.clone()];
+        if let Some(cwd) = &self.cwd {
+            owned_parts.push(cwd.display());
+        }
+        for root in &self.allowed_roots {
+            owned_parts.push(root.display());
+        }
+        let parts = owned_parts.iter().map(String::as_str).collect::<Vec<_>>();
+        ScopeKey(stable_id(&parts))
+    }
+}
+
+#[derive(Debug, Copy, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolEffects {
+    pub repo_read: bool,
+    pub artifact_read: bool,
+    pub artifact_write: bool,
+    pub network_read: bool,
+    pub host_read: bool,
+    pub external_side_effect: bool,
+}
+
+impl ToolEffects {
+    pub fn review_read_only() -> Self {
+        Self {
+            repo_read: true,
+            artifact_read: true,
+            artifact_write: true,
+            network_read: false,
+            host_read: false,
+            external_side_effect: false,
+        }
+    }
+
+    pub fn custom_read_only() -> Self {
+        Self {
+            repo_read: true,
+            artifact_read: true,
+            artifact_write: true,
+            network_read: false,
+            host_read: true,
+            external_side_effect: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolGrant {
+    pub allow: bool,
+    pub max_calls: Option<u32>,
+    pub effects_allowed: ToolEffects,
+}
+
+impl ToolGrant {
+    pub fn allow_review_read_only() -> Self {
+        Self {
+            allow: true,
+            max_calls: None,
+            effects_allowed: ToolEffects::review_read_only(),
+        }
+    }
+
+    pub fn allow_custom_read_only() -> Self {
+        Self {
+            allow: true,
+            max_calls: None,
+            effects_allowed: ToolEffects::custom_read_only(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilitySet {
+    pub fs_scope: FsScope,
+    pub tool_grants: BTreeMap<ToolId, ToolGrant>,
+}
+
+impl CapabilitySet {
+    pub fn review_read_only() -> Self {
+        let mut capabilities = Self {
+            fs_scope: FsScope::repo_root(),
+            tool_grants: BTreeMap::new(),
+        };
+        for tool in [
+            ToolName::ListChangedFiles,
+            ToolName::ReadDiff,
+            ToolName::ListFiles,
+            ToolName::ReadFile,
+            ToolName::ReadBaseFile,
+            ToolName::ReadHeadFile,
+            ToolName::SearchText,
+            ToolName::FindRelatedFiles,
+            ToolName::FindTestsForFile,
+            ToolName::ListImports,
+            ToolName::RecordFinding,
+            ToolName::ChallengeFinding,
+            ToolName::Finish,
+        ] {
+            capabilities.grant(ToolId::from(tool), ToolGrant::allow_review_read_only());
+        }
+        capabilities
+    }
+
+    pub fn with_fs_scope(mut self, fs_scope: FsScope) -> Self {
+        self.fs_scope = fs_scope;
+        self
+    }
+
+    pub fn grant(&mut self, tool_id: ToolId, grant: ToolGrant) {
+        self.tool_grants.insert(tool_id, grant);
+    }
+
+    pub fn grant_tool(&mut self, tool_id: ToolId, grant: ToolGrant) {
+        self.grant(tool_id, grant);
+    }
+
+    pub fn allows_tool(&self, tool_id: &ToolId) -> bool {
+        self.tool_grants
+            .get(tool_id)
+            .map(|grant| grant.allow)
+            .unwrap_or(false)
+    }
+
+    pub fn allow_tool(&self, tool_id: &ToolId) -> bool {
+        self.allows_tool(tool_id)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionScope {
+    pub id: SessionId,
+    pub role: Role,
+    pub objective: String,
+    pub model_profile_id: Option<String>,
+    pub capabilities: CapabilitySet,
+    pub budget: AgentBudget,
+}
+
+impl SessionScope {
+    pub fn review_read_only(
+        id: SessionId,
+        role: Role,
+        objective: impl Into<String>,
+        budget: AgentBudget,
+    ) -> Self {
+        Self {
+            id,
+            role,
+            objective: objective.into(),
+            model_profile_id: None,
+            capabilities: CapabilitySet::review_read_only(),
+            budget,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ConversationItem {
     System {
         content: String,
     },
@@ -192,16 +404,16 @@ pub(crate) enum ConversationItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ModelToolCall {
-    pub(crate) call_id: ToolCallId,
-    pub(crate) index: usize,
-    pub(crate) name: ToolId,
-    pub(crate) raw_arguments: String,
+pub struct ModelToolCall {
+    pub call_id: ToolCallId,
+    pub index: usize,
+    pub name: ToolId,
+    pub raw_arguments: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum ModelTurn {
+pub enum ModelTurn {
     Text {
         content: String,
         usage: TokenUsage,
@@ -221,13 +433,13 @@ pub(crate) struct ToolInvocation {
     pub(crate) tool_id: ToolId,
     pub(crate) builtin_name: Option<ToolName>,
     pub(crate) args: ToolArgs,
-    pub(crate) allowed_tools: ToolMask,
-    pub(crate) allowed_custom_tools: Vec<ToolId>,
+    pub(crate) capabilities: CapabilitySet,
+    pub(crate) scope_key: ScopeKey,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub(crate) enum ToolArgs {
+pub enum ToolArgs {
     Empty,
     ReadFile { path: RepoPath },
     SearchText { query: String },
@@ -238,16 +450,16 @@ pub(crate) enum ToolArgs {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ToolResultEnvelope {
-    pub(crate) ok: bool,
-    pub(crate) tool_call_id: ToolCallId,
-    pub(crate) tool_name: ToolId,
-    pub(crate) snapshot_id: SnapshotId,
-    pub(crate) artifact_id: Option<ArtifactId>,
-    pub(crate) cache: CacheInfo,
-    pub(crate) limits: LimitInfo,
-    pub(crate) data: Option<Value>,
-    pub(crate) error: Option<ToolErrorInfo>,
+pub struct ToolResultEnvelope {
+    pub ok: bool,
+    pub tool_call_id: ToolCallId,
+    pub tool_name: ToolId,
+    pub snapshot_id: SnapshotId,
+    pub artifact_id: Option<ArtifactId>,
+    pub cache: CacheInfo,
+    pub limits: LimitInfo,
+    pub data: Option<Value>,
+    pub error: Option<ToolErrorInfo>,
 }
 
 impl ToolResultEnvelope {
@@ -267,14 +479,14 @@ impl ToolResultEnvelope {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct CacheInfo {
-    pub(crate) status: CacheStatus,
-    pub(crate) key_hash: Option<String>,
+pub struct CacheInfo {
+    pub status: CacheStatus,
+    pub key_hash: Option<String>,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum CacheStatus {
+pub enum CacheStatus {
     Hit,
     Miss,
     Deduped,
@@ -283,26 +495,26 @@ pub(crate) enum CacheStatus {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LimitInfo {
-    pub(crate) truncated: bool,
-    pub(crate) output_bytes: usize,
-    pub(crate) searched_files: usize,
-    pub(crate) skipped_files: usize,
-    pub(crate) bytes_scanned: usize,
+pub struct LimitInfo {
+    pub truncated: bool,
+    pub output_bytes: usize,
+    pub searched_files: usize,
+    pub skipped_files: usize,
+    pub bytes_scanned: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ToolErrorInfo {
-    pub(crate) code: ToolErrorCode,
-    pub(crate) message: String,
-    pub(crate) retryable: bool,
-    pub(crate) partial: bool,
+pub struct ToolErrorInfo {
+    pub code: ToolErrorCode,
+    pub message: String,
+    pub retryable: bool,
+    pub partial: bool,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum ToolErrorCode {
+pub enum ToolErrorCode {
     InvalidArgs,
     UnknownTool,
     ToolNotAllowed,
@@ -321,43 +533,39 @@ pub(crate) enum ToolErrorCode {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct EvidenceRecord {
-    pub(crate) evidence_id: EvidenceId,
-    pub(crate) snapshot_id: SnapshotId,
-    pub(crate) file_id: Option<FileId>,
-    pub(crate) path: Option<RepoPath>,
-    pub(crate) start_line: Option<u32>,
-    pub(crate) end_line: Option<u32>,
-    pub(crate) snippet_hash: String,
-    pub(crate) artifact_id: ArtifactId,
+pub struct EvidenceRecord {
+    pub evidence_id: EvidenceId,
+    pub snapshot_id: SnapshotId,
+    pub file_id: Option<FileId>,
+    pub path: Option<RepoPath>,
+    pub start_line: Option<u32>,
+    pub end_line: Option<u32>,
+    pub snippet_hash: String,
+    pub artifact_id: ArtifactId,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct RuntimeLimits {
-    pub(crate) max_active_sessions: usize,
-    pub(crate) max_model_concurrency_global: usize,
-    pub(crate) max_model_concurrency_per_key: usize,
-    pub(crate) max_tool_calls_per_turn: usize,
-    pub(crate) max_tool_parallelism_per_session: usize,
-    pub(crate) max_read_concurrency_global: usize,
-    pub(crate) max_search_jobs_global: usize,
-    pub(crate) max_search_queue_depth: usize,
-    pub(crate) max_file_bytes_read: usize,
-    pub(crate) max_file_bytes_search: usize,
-    pub(crate) max_search_matches: usize,
-    pub(crate) max_search_pattern_bytes: usize,
-    pub(crate) file_content_cache_bytes: u64,
-    pub(crate) search_result_cache_bytes: u64,
-    pub(crate) search_threads: usize,
+pub struct RuntimeLimits {
+    pub max_active_sessions: usize,
+    pub max_model_concurrency_global: usize,
+    pub max_model_concurrency_per_key: usize,
+    pub max_tool_calls_per_turn: usize,
+    pub max_tool_parallelism_per_session: usize,
+    pub max_read_concurrency_global: usize,
+    pub max_search_jobs_global: usize,
+    pub max_search_queue_depth: usize,
+    pub max_file_bytes_read: usize,
+    pub max_file_bytes_search: usize,
+    pub max_search_matches: usize,
+    pub max_search_pattern_bytes: usize,
+    pub file_content_cache_bytes: u64,
+    pub search_result_cache_bytes: u64,
+    pub search_threads: usize,
 }
 
 impl RuntimeLimits {
-    pub(crate) fn standard(
-        sessions: usize,
-        max_file_bytes: usize,
-        max_search_matches: usize,
-    ) -> Self {
+    pub fn standard(sessions: usize, max_file_bytes: usize, max_search_matches: usize) -> Self {
         Self {
             max_active_sessions: sessions.max(1),
             max_model_concurrency_global: 16,
@@ -380,7 +588,7 @@ impl RuntimeLimits {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum RuntimeEvent {
+pub enum RuntimeEvent {
     JobStarted {
         snapshot_id: SnapshotId,
     },
@@ -430,45 +638,68 @@ pub(crate) enum RuntimeEvent {
 
 #[derive(Debug, Default, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ConcurrentCounters {
-    pub(crate) search_scans: usize,
-    pub(crate) search_dedupe_waiters: usize,
-    pub(crate) search_cache_hits: usize,
-    pub(crate) read_cache_hits: usize,
-    pub(crate) read_file_reads: usize,
-    pub(crate) tool_errors: usize,
-    pub(crate) artifact_cache_hits: usize,
+pub struct ConcurrentCounters {
+    pub search_scans: usize,
+    pub search_dedupe_waiters: usize,
+    pub search_cache_hits: usize,
+    pub read_cache_hits: usize,
+    pub read_file_reads: usize,
+    pub tool_errors: usize,
+    pub artifact_cache_hits: usize,
+}
+
+pub type ToolMetricKey = ToolId;
+
+#[derive(Debug, Default, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolMetricsSnapshot {
+    pub calls: usize,
+    pub successes: usize,
+    pub errors: usize,
+    pub cache_hits: usize,
+    pub deduped: usize,
+    pub output_bytes: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ConcurrentRunReport {
-    pub(crate) runtime: &'static str,
-    pub(crate) sessions: usize,
-    pub(crate) completed_sessions: usize,
-    pub(crate) model_calls: usize,
-    pub(crate) tool_calls: usize,
-    pub(crate) tool_counts: ToolCounts,
-    pub(crate) findings: usize,
-    pub(crate) elapsed_ms: u64,
-    pub(crate) input_tokens: u64,
-    pub(crate) output_tokens: u64,
-    pub(crate) total_tokens: u64,
-    pub(crate) artifacts: usize,
-    pub(crate) artifact_bytes: usize,
-    pub(crate) counters: ConcurrentCounters,
-    pub(crate) benchmark_valid: bool,
-    pub(crate) benchmark_failures: Vec<String>,
+pub struct ArtifactView {
+    pub artifact_id: ArtifactId,
+    pub bytes: usize,
+    pub content_hash: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ComparisonReport {
-    pub(crate) sessions: usize,
-    pub(crate) sync: ConcurrentRunReport,
-    pub(crate) concurrent: ConcurrentRunReport,
-    pub(crate) speedup: f64,
-    pub(crate) search_scan_reduction: f64,
+pub struct ConcurrentRunReport {
+    pub runtime: &'static str,
+    pub sessions: usize,
+    pub completed_sessions: usize,
+    pub model_calls: usize,
+    pub tool_calls: usize,
+    pub tool_counts: ToolCounts,
+    pub findings: usize,
+    pub elapsed_ms: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub total_tokens: u64,
+    pub artifacts: usize,
+    pub artifact_bytes: usize,
+    pub counters: ConcurrentCounters,
+    pub tool_metrics: BTreeMap<String, ToolMetricsSnapshot>,
+    pub benchmark_valid: bool,
+    pub benchmark_failures: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComparisonReport {
+    pub sessions: usize,
+    pub sync: ConcurrentRunReport,
+    pub concurrent: ConcurrentRunReport,
+    pub speedup: f64,
+    pub search_scan_reduction: f64,
 }
 
 pub(crate) fn stable_id(parts: &[&str]) -> String {

@@ -10,9 +10,9 @@
     "use|fn|struct"
   ],
   "exit_code": 0,
-  "duration_s": 0.311,
+  "duration_s": 0.297,
   "peak": {
-    "rss_mb": 14.02,
+    "rss_mb": 10.77,
     "pss_mb": null,
     "uss_mb": null,
     "process_count": 1
@@ -22,71 +22,71 @@
     "pss_mb": null,
     "uss_mb": null,
     "process_count": 0,
-    "t": 0.311
+    "t": 0.297
   },
   "samples": [
     {
-      "rss_mb": 6.06,
+      "rss_mb": 6.25,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.008
+      "t": 0.009
     },
     {
-      "rss_mb": 11.3,
+      "rss_mb": 8.08,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.067
+      "t": 0.049
     },
     {
-      "rss_mb": 12.06,
+      "rss_mb": 8.39,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.121
+      "t": 0.088
     },
     {
-      "rss_mb": 13.95,
+      "rss_mb": 9.05,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.156
+      "t": 0.131
     },
     {
-      "rss_mb": 14.02,
+      "rss_mb": 10.75,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.186
+      "t": 0.167
     },
     {
-      "rss_mb": 14.02,
+      "rss_mb": 10.77,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.217
+      "t": 0.201
     },
     {
-      "rss_mb": 14.02,
+      "rss_mb": 10.77,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.244
-    },
-    {
-      "rss_mb": 14.02,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 0.278
+      "t": 0.236
     },
     {
       "rss_mb": 0.0,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 0,
-      "t": 0.311
+      "t": 0.266
+    },
+    {
+      "rss_mb": 0.0,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 0,
+      "t": 0.297
     }
   ],
   "stdout_lines": [
@@ -118,8 +118,8 @@
     "    \"inputTokens\": 0,",
     "    \"outputTokens\": 0,",
     "    \"totalTokens\": 0,",
-    "    \"artifacts\": 203,",
-    "    \"artifactBytes\": 2286241,",
+    "    \"artifacts\": 202,",
+    "    \"artifactBytes\": 2284994,",
     "    \"counters\": {",
     "      \"searchScans\": 100,",
     "      \"searchDedupeWaiters\": 0,",
@@ -129,6 +129,7 @@
     "      \"toolErrors\": 0,",
     "      \"artifactCacheHits\": 0",
     "    },",
+    "    \"toolMetrics\": {},",
     "    \"benchmarkValid\": true,",
     "    \"benchmarkFailures\": []",
     "  },",
@@ -154,7 +155,7 @@
     "      \"finish\": 0",
     "    },",
     "    \"findings\": 100,",
-    "    \"elapsedMs\": 7,",
+    "    \"elapsedMs\": 8,",
     "    \"inputTokens\": 80000,",
     "    \"outputTokens\": 12800,",
     "    \"totalTokens\": 92800,",
@@ -167,12 +168,46 @@
     "      \"readCacheHits\": 1,",
     "      \"readFileReads\": 1,",
     "      \"toolErrors\": 0,",
-    "      \"artifactCacheHits\": 182",
+    "      \"artifactCacheHits\": 183",
+    "    },",
+    "    \"toolMetrics\": {",
+    "      \"read_diff\": {",
+    "        \"calls\": 100,",
+    "        \"successes\": 100,",
+    "        \"errors\": 0,",
+    "        \"cacheHits\": 94,",
+    "        \"deduped\": 5,",
+    "        \"outputBytes\": 123400",
+    "      },",
+    "      \"read_file\": {",
+    "        \"calls\": 100,",
+    "        \"successes\": 100,",
+    "        \"errors\": 0,",
+    "        \"cacheHits\": 89,",
+    "        \"deduped\": 9,",
+    "        \"outputBytes\": 124700",
+    "      },",
+    "      \"record_finding\": {",
+    "        \"calls\": 100,",
+    "        \"successes\": 100,",
+    "        \"errors\": 0,",
+    "        \"cacheHits\": 0,",
+    "        \"deduped\": 0,",
+    "        \"outputBytes\": 0",
+    "      },",
+    "      \"search_text\": {",
+    "        \"calls\": 100,",
+    "        \"successes\": 100,",
+    "        \"errors\": 0,",
+    "        \"cacheHits\": 0,",
+    "        \"deduped\": 99,",
+    "        \"outputBytes\": 2813400",
+    "      }",
     "    },",
     "    \"benchmarkValid\": true,",
     "    \"benchmarkFailures\": []",
     "  },",
-    "  \"speedup\": 20.857142857142858,",
+    "  \"speedup\": 18.25,",
     "  \"searchScanReduction\": 100.0",
     "}"
   ],

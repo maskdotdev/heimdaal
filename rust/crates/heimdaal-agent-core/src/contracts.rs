@@ -154,7 +154,7 @@ pub(crate) struct PersonaSpecV1 {
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum Role {
+pub enum Role {
     Generalist,
     Security,
     Performance,
@@ -165,7 +165,7 @@ pub(crate) enum Role {
 }
 
 impl Role {
-    pub(crate) fn for_index(index: usize) -> Self {
+    pub fn for_index(index: usize) -> Self {
         match index % 6 {
             0 => Self::Correctness,
             1 => Self::Security,
@@ -264,11 +264,11 @@ pub(crate) struct RunBudgetsV1 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AgentBudget {
-    pub(crate) max_turns: usize,
-    pub(crate) max_tool_calls: usize,
-    pub(crate) max_prompt_tokens: u64,
-    pub(crate) max_output_tokens: u64,
+pub struct AgentBudget {
+    pub max_turns: usize,
+    pub max_tool_calls: usize,
+    pub max_prompt_tokens: u64,
+    pub max_output_tokens: u64,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
@@ -761,7 +761,7 @@ pub(crate) enum AgentEvent {
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum ToolName {
+pub enum ToolName {
     ListChangedFiles,
     ReadDiff,
     ListFiles,
@@ -778,7 +778,7 @@ pub(crate) enum ToolName {
 }
 
 impl ToolName {
-    pub(crate) fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::ListChangedFiles => "list_changed_files",
             Self::ReadDiff => "read_diff",
@@ -894,14 +894,14 @@ impl ModelAction {
 
 #[derive(Debug, Default, Copy, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct TokenUsage {
-    pub(crate) input_tokens: u64,
-    pub(crate) output_tokens: u64,
-    pub(crate) total_tokens: u64,
+pub struct TokenUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub total_tokens: u64,
 }
 
 impl TokenUsage {
-    pub(crate) fn add(&mut self, other: TokenUsage) {
+    pub fn add(&mut self, other: TokenUsage) {
         self.input_tokens += other.input_tokens;
         self.output_tokens += other.output_tokens;
         self.total_tokens += other.total_tokens;
@@ -910,24 +910,24 @@ impl TokenUsage {
 
 #[derive(Debug, Default, Copy, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ToolCounts {
-    pub(crate) list_changed_files: usize,
-    pub(crate) read_diff: usize,
-    pub(crate) list_files: usize,
-    pub(crate) read_file: usize,
-    pub(crate) read_base_file: usize,
-    pub(crate) read_head_file: usize,
-    pub(crate) search_text: usize,
-    pub(crate) find_related_files: usize,
-    pub(crate) find_tests_for_file: usize,
-    pub(crate) list_imports: usize,
-    pub(crate) record_finding: usize,
-    pub(crate) challenge_finding: usize,
-    pub(crate) finish: usize,
+pub struct ToolCounts {
+    pub list_changed_files: usize,
+    pub read_diff: usize,
+    pub list_files: usize,
+    pub read_file: usize,
+    pub read_base_file: usize,
+    pub read_head_file: usize,
+    pub search_text: usize,
+    pub find_related_files: usize,
+    pub find_tests_for_file: usize,
+    pub list_imports: usize,
+    pub record_finding: usize,
+    pub challenge_finding: usize,
+    pub finish: usize,
 }
 
 impl ToolCounts {
-    pub(crate) fn add(&mut self, other: ToolCounts) {
+    pub fn add(&mut self, other: ToolCounts) {
         self.list_changed_files += other.list_changed_files;
         self.read_diff += other.read_diff;
         self.list_files += other.list_files;
@@ -943,7 +943,7 @@ impl ToolCounts {
         self.finish += other.finish;
     }
 
-    pub(crate) fn increment(&mut self, tool: ToolName) {
+    pub fn increment(&mut self, tool: ToolName) {
         match tool {
             ToolName::ListChangedFiles => self.list_changed_files += 1,
             ToolName::ReadDiff => self.read_diff += 1,
@@ -961,7 +961,7 @@ impl ToolCounts {
         }
     }
 
-    pub(crate) fn total(self) -> usize {
+    pub fn total(self) -> usize {
         self.list_changed_files
             + self.read_diff
             + self.list_files

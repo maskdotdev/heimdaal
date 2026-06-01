@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -17,7 +17,7 @@ use tokio_util::sync::CancellationToken;
 use crate::concurrent::contracts::*;
 use crate::concurrent::repo::{FileMeta, RepoSnapshot};
 use crate::concurrent::tool_registry::{CustomToolContext, ToolRegistry};
-use crate::contracts::{ToolCounts, ToolMask, ToolName};
+use crate::contracts::{ToolCounts, ToolName};
 
 #[derive(Debug)]
 pub(crate) struct ToolEngine {
@@ -33,6 +33,7 @@ pub(crate) struct ToolEngine {
     inflight: Mutex<HashMap<String, Arc<InflightToolResult>>>,
     read_permits: Arc<Semaphore>,
     pub(crate) counters: Arc<ConcurrentAtomicCounters>,
+    pub(crate) metrics: Arc<ConcurrentToolMetricsStore>,
 }
 
 #[derive(Debug, Default)]
@@ -55,6 +56,7 @@ impl ToolEngine {
         registry: Arc<ToolRegistry>,
     ) -> RuntimeResult<Self> {
         let counters = Arc::new(ConcurrentAtomicCounters::default());
+        let metrics = Arc::new(ConcurrentToolMetricsStore::default());
         let redactor = Arc::new(Redactor::new()?);
         let artifacts = Arc::new(ConcurrentArtifactStore::default());
         let read = Arc::new(ReadService::new(
@@ -82,20 +84,19 @@ impl ToolEngine {
             limits,
             redactor,
             counters,
+            metrics,
         })
     }
 
     pub(crate) async fn execute_batch(
         &self,
-        session_id: SessionId,
+        scope: SessionScope,
         turn_id: TurnId,
         calls: Vec<crate::concurrent::contracts::ModelToolCall>,
-        allowed_tools: ToolMask,
-        allowed_custom_tools: &[ToolId],
         cancel: CancellationToken,
     ) -> Vec<ToolResultEnvelope> {
         if calls.len() > self.limits.max_tool_calls_per_turn {
-            return calls
+            let results = calls
                 .into_iter()
                 .map(|call| {
                     self.error_result(
@@ -106,14 +107,16 @@ impl ToolEngine {
                         false,
                     )
                 })
-                .collect();
+                .collect::<Vec<_>>();
+            self.record_batch_metrics(&results);
+            return results;
         }
         if calls.len() > 1
             && calls
                 .iter()
                 .any(|call| call.name.as_builtin() == Some(ToolName::Finish))
         {
-            return calls
+            let results = calls
                 .into_iter()
                 .map(|call| {
                     self.error_result(
@@ -124,28 +127,35 @@ impl ToolEngine {
                         false,
                     )
                 })
-                .collect();
+                .collect::<Vec<_>>();
+            self.record_batch_metrics(&results);
+            return results;
         }
 
         let per_session = Arc::new(Semaphore::new(
             self.limits.max_tool_parallelism_per_session.max(1),
         ));
-        let allowed_custom_tools = Arc::new(allowed_custom_tools.to_vec());
+        let scope_key = scope
+            .capabilities
+            .fs_scope
+            .scope_key(&self.snapshot.snapshot_id);
+        let scope = Arc::new(scope);
         let mut futures = FuturesUnordered::new();
         for call in calls {
             let engine = self;
             let per_session = Arc::clone(&per_session);
             let cancel = cancel.clone();
-            let session_id = session_id.clone();
-            let allowed_custom_tools = Arc::clone(&allowed_custom_tools);
+            let session_id = scope.id.clone();
+            let capabilities = scope.capabilities.clone();
+            let scope_key = scope_key.clone();
             futures.push(async move {
                 let original_index = call.index;
                 let result = match validate_invocation(
                     session_id,
                     turn_id,
                     call,
-                    allowed_tools,
-                    &allowed_custom_tools,
+                    capabilities,
+                    scope_key,
                     &engine.registry,
                 ) {
                     Ok(invocation) => {
@@ -176,7 +186,12 @@ impl ToolEngine {
             ordered.push(result);
         }
         ordered.sort_by_key(|(index, _)| *index);
-        ordered.into_iter().map(|(_, result)| result).collect()
+        let results = ordered
+            .into_iter()
+            .map(|(_, result)| result)
+            .collect::<Vec<_>>();
+        self.record_batch_metrics(&results);
+        results
     }
 
     async fn execute_invocation(
@@ -193,16 +208,14 @@ impl ToolEngine {
                 false,
             );
         }
-        if let Some(builtin) = invocation.builtin_name {
-            if !tool_allowed(invocation.allowed_tools, builtin) {
-                return self.error_result(
-                    invocation.call_id,
-                    invocation.tool_id,
-                    ToolErrorCode::ToolNotAllowed,
-                    "tool is not allowed for this session",
-                    false,
-                );
-            }
+        if !invocation.capabilities.allow_tool(&invocation.tool_id) {
+            return self.error_result(
+                invocation.call_id,
+                invocation.tool_id,
+                ToolErrorCode::ToolNotAllowed,
+                "tool is not allowed for this session",
+                false,
+            );
         }
         if invocation.builtin_name.is_none()
             && self
@@ -288,7 +301,12 @@ impl ToolEngine {
     ) -> ToolResultEnvelope {
         match invocation.builtin_name {
             Some(ToolName::ReadDiff) => self.read_diff(invocation.call_id, cache_status),
-            Some(ToolName::ListFiles) => self.list_files(invocation.call_id, cache_status),
+            Some(ToolName::ListFiles) => self.list_files(
+                invocation.call_id,
+                &invocation.capabilities.fs_scope,
+                &invocation.scope_key,
+                cache_status,
+            ),
             Some(ToolName::ReadFile | ToolName::ReadHeadFile) => {
                 let ToolArgs::ReadFile { path } = invocation.args else {
                     return self.error_result(
@@ -299,6 +317,15 @@ impl ToolEngine {
                         false,
                     );
                 };
+                if !invocation.capabilities.fs_scope.allows(&path) {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::PathDenied,
+                        "path is outside the session filesystem scope",
+                        false,
+                    );
+                }
                 self.read_file(
                     invocation.call_id,
                     invocation
@@ -319,8 +346,15 @@ impl ToolEngine {
                         false,
                     );
                 };
-                self.search_text(invocation.call_id, query, cancel, cache_status)
-                    .await
+                self.search_text(
+                    invocation.call_id,
+                    query,
+                    &invocation.capabilities.fs_scope,
+                    &invocation.scope_key,
+                    cancel,
+                    cache_status,
+                )
+                .await
             }
             Some(ToolName::RecordFinding) => {
                 let ToolArgs::RecordFinding { title, claim } = invocation.args else {
@@ -363,6 +397,7 @@ impl ToolEngine {
                 Some(stable_id(&[
                     &self.snapshot.snapshot_id.0,
                     invocation.tool_id.as_str(),
+                    invocation.scope_key.as_str(),
                     &CONCURRENT_CONTRACT_VERSION.to_string(),
                     &REDACTION_POLICY_VERSION.to_string(),
                 ]))
@@ -370,6 +405,7 @@ impl ToolEngine {
             ToolArgs::ReadFile { path } => Some(stable_id(&[
                 &self.snapshot.snapshot_id.0,
                 invocation.tool_id.as_str(),
+                invocation.scope_key.as_str(),
                 &path.display(),
                 &CONCURRENT_CONTRACT_VERSION.to_string(),
                 &REDACTION_POLICY_VERSION.to_string(),
@@ -377,6 +413,7 @@ impl ToolEngine {
             ToolArgs::SearchText { query } => Some(stable_id(&[
                 &self.snapshot.snapshot_id.0,
                 invocation.tool_id.as_str(),
+                invocation.scope_key.as_str(),
                 query,
                 &self.limits.max_search_matches.to_string(),
                 &CONCURRENT_CONTRACT_VERSION.to_string(),
@@ -390,6 +427,7 @@ impl ToolEngine {
                     stable_id(&[
                         &self.snapshot.snapshot_id.0,
                         invocation.tool_id.as_str(),
+                        invocation.scope_key.as_str(),
                         &raw.to_string(),
                         &CONCURRENT_CONTRACT_VERSION.to_string(),
                         &REDACTION_POLICY_VERSION.to_string(),
@@ -431,8 +469,22 @@ impl ToolEngine {
         }
     }
 
-    fn list_files(&self, call_id: ToolCallId, cache_status: CacheStatus) -> ToolResultEnvelope {
-        let files = self.snapshot.list_files();
+    fn list_files(
+        &self,
+        call_id: ToolCallId,
+        fs_scope: &FsScope,
+        scope_key: &ScopeKey,
+        cache_status: CacheStatus,
+    ) -> ToolResultEnvelope {
+        let mut files = self
+            .snapshot
+            .manifest
+            .files
+            .iter()
+            .filter(|file| file.is_text_candidate && fs_scope.allows(&file.rel_path))
+            .map(|file| file.rel_path.display())
+            .collect::<Vec<_>>();
+        files.sort();
         let content = files
             .iter()
             .take(300)
@@ -440,7 +492,11 @@ impl ToolEngine {
             .collect::<Vec<_>>()
             .join("\n");
         let artifact_id = self.artifacts.insert(
-            ArtifactKey(stable_id(&[&self.snapshot.snapshot_id.0, "list_files"])),
+            ArtifactKey(stable_id(&[
+                &self.snapshot.snapshot_id.0,
+                "list_files",
+                scope_key.as_str(),
+            ])),
             content,
         );
         ToolResultEnvelope {
@@ -539,10 +595,12 @@ impl ToolEngine {
         &self,
         call_id: ToolCallId,
         query: String,
+        fs_scope: &FsScope,
+        scope_key: &ScopeKey,
         cancel: CancellationToken,
         cache_status: CacheStatus,
     ) -> ToolResultEnvelope {
-        match self.search.search(query, cancel).await {
+        match self.search.search(query, fs_scope, scope_key, cancel).await {
             Ok(mut result) => {
                 result.tool_call_id = call_id;
                 result.cache.status = cache_status;
@@ -744,6 +802,16 @@ impl ToolEngine {
     pub(crate) fn snapshot_counters(&self) -> ConcurrentCounters {
         self.counters.snapshot()
     }
+
+    pub(crate) fn snapshot_tool_metrics(&self) -> BTreeMap<String, ToolMetricsSnapshot> {
+        self.metrics.snapshot()
+    }
+
+    fn record_batch_metrics(&self, results: &[ToolResultEnvelope]) {
+        for result in results {
+            self.metrics.record(result);
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -842,6 +910,8 @@ impl SearchCoordinator {
     async fn search(
         &self,
         query: String,
+        fs_scope: &FsScope,
+        scope_key: &ScopeKey,
         cancel: CancellationToken,
     ) -> RuntimeResult<ToolResultEnvelope> {
         if query.trim().is_empty() {
@@ -876,7 +946,7 @@ impl SearchCoordinator {
             .manifest
             .files
             .iter()
-            .filter(|file| file.is_text_candidate)
+            .filter(|file| file.is_text_candidate && fs_scope.allows(&file.rel_path))
             .map(|file| file.file_id)
             .collect::<Vec<_>>();
         let snapshot = Arc::clone(&self.snapshot);
@@ -934,6 +1004,7 @@ impl SearchCoordinator {
             ArtifactKey(stable_id(&[
                 &self.snapshot.snapshot_id.0,
                 "search_text",
+                scope_key.as_str(),
                 &query,
                 &max_matches.to_string(),
             ])),
@@ -1080,6 +1151,21 @@ impl ConcurrentArtifactStore {
         let bytes = artifacts.iter().map(|item| item.bytes).sum();
         (artifacts.len(), bytes)
     }
+
+    pub(crate) fn get(&self, artifact_id: &ArtifactId) -> Option<ArtifactView> {
+        self.by_id
+            .get(&artifact_id.0)
+            .map(|artifact| artifact.as_ref().view())
+    }
+
+    pub(crate) fn list(&self) -> Vec<ArtifactView> {
+        self.order
+            .lock()
+            .iter()
+            .filter_map(|artifact_id| self.by_id.get(artifact_id))
+            .map(|artifact| artifact.as_ref().view())
+            .collect()
+    }
 }
 
 #[derive(Debug)]
@@ -1088,6 +1174,17 @@ struct ConcurrentArtifact {
     bytes: usize,
     content_hash: String,
     content: String,
+}
+
+impl ConcurrentArtifact {
+    fn view(&self) -> ArtifactView {
+        ArtifactView {
+            artifact_id: self.artifact_id.clone(),
+            bytes: self.bytes,
+            content_hash: self.content_hash.clone(),
+            content: self.content.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -1187,6 +1284,67 @@ impl ConcurrentAtomicCounters {
     }
 }
 
+#[derive(Debug, Default)]
+pub(crate) struct ConcurrentToolMetricsStore {
+    by_tool: DashMap<String, Arc<ConcurrentToolMetricCounters>>,
+}
+
+impl ConcurrentToolMetricsStore {
+    fn record(&self, result: &ToolResultEnvelope) {
+        let counters = self
+            .by_tool
+            .entry(result.tool_name.as_str().to_string())
+            .or_insert_with(|| Arc::new(ConcurrentToolMetricCounters::default()))
+            .clone();
+        counters.calls.fetch_add(1, Ordering::Relaxed);
+        if result.ok {
+            counters.successes.fetch_add(1, Ordering::Relaxed);
+        } else {
+            counters.errors.fetch_add(1, Ordering::Relaxed);
+        }
+        if result.cache.status == CacheStatus::Hit {
+            counters.cache_hits.fetch_add(1, Ordering::Relaxed);
+        }
+        if result.cache.status == CacheStatus::Deduped {
+            counters.deduped.fetch_add(1, Ordering::Relaxed);
+        }
+        counters
+            .output_bytes
+            .fetch_add(result.limits.output_bytes, Ordering::Relaxed);
+    }
+
+    fn snapshot(&self) -> BTreeMap<String, ToolMetricsSnapshot> {
+        let mut snapshot = BTreeMap::new();
+        for entry in self.by_tool.iter() {
+            snapshot.insert(entry.key().clone(), entry.value().snapshot());
+        }
+        snapshot
+    }
+}
+
+#[derive(Debug, Default)]
+struct ConcurrentToolMetricCounters {
+    calls: AtomicUsize,
+    successes: AtomicUsize,
+    errors: AtomicUsize,
+    cache_hits: AtomicUsize,
+    deduped: AtomicUsize,
+    output_bytes: AtomicUsize,
+}
+
+impl ConcurrentToolMetricCounters {
+    fn snapshot(&self) -> ToolMetricsSnapshot {
+        ToolMetricsSnapshot {
+            calls: self.calls.load(Ordering::Relaxed),
+            successes: self.successes.load(Ordering::Relaxed),
+            errors: self.errors.load(Ordering::Relaxed),
+            cache_hits: self.cache_hits.load(Ordering::Relaxed),
+            deduped: self.deduped.load(Ordering::Relaxed),
+            output_bytes: self.output_bytes.load(Ordering::Relaxed),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ReadFileArgs {
@@ -1216,8 +1374,8 @@ pub(crate) fn validate_invocation(
     session_id: SessionId,
     turn_id: TurnId,
     call: crate::concurrent::contracts::ModelToolCall,
-    allowed_tools: ToolMask,
-    allowed_custom_tools: &[ToolId],
+    capabilities: CapabilitySet,
+    scope_key: ScopeKey,
     registry: &ToolRegistry,
 ) -> Result<ToolInvocation, (ToolCallId, ToolId, ToolErrorCode)> {
     let tool_id = call.name;
@@ -1227,6 +1385,9 @@ pub(crate) fn validate_invocation(
     };
     if definition.builtin != builtin_name {
         return Err((call.call_id, tool_id, ToolErrorCode::UnknownTool));
+    }
+    if !capabilities.allow_tool(&tool_id) {
+        return Err((call.call_id, tool_id, ToolErrorCode::ToolNotAllowed));
     }
     let args = match builtin_name {
         Some(ToolName::ReadDiff | ToolName::ListFiles) => ToolArgs::Empty,
@@ -1288,9 +1449,6 @@ pub(crate) fn validate_invocation(
         }
         Some(_) => return Err((call.call_id, tool_id, ToolErrorCode::UnknownTool)),
         None => {
-            if !allowed_custom_tools.contains(&tool_id) {
-                return Err((call.call_id, tool_id, ToolErrorCode::ToolNotAllowed));
-            }
             let parsed: Value = serde_json::from_str(&call.raw_arguments).map_err(|_| {
                 (
                     call.call_id.clone(),
@@ -1309,27 +1467,9 @@ pub(crate) fn validate_invocation(
         tool_id,
         builtin_name,
         args,
-        allowed_tools,
-        allowed_custom_tools: allowed_custom_tools.to_vec(),
+        capabilities,
+        scope_key,
     })
-}
-
-pub(crate) fn tool_allowed(mask: ToolMask, tool: ToolName) -> bool {
-    match tool {
-        ToolName::ListChangedFiles => mask.list_changed_files,
-        ToolName::ReadDiff => mask.read_diff,
-        ToolName::ListFiles => mask.list_files,
-        ToolName::ReadFile => mask.read_file,
-        ToolName::ReadBaseFile => mask.read_base_file,
-        ToolName::ReadHeadFile => mask.read_head_file,
-        ToolName::SearchText => mask.search_text,
-        ToolName::FindRelatedFiles => mask.find_related_files,
-        ToolName::FindTestsForFile => mask.find_tests_for_file,
-        ToolName::ListImports => mask.list_imports,
-        ToolName::RecordFinding => mask.record_finding,
-        ToolName::ChallengeFinding => mask.challenge_finding,
-        ToolName::Finish => mask.finish,
-    }
 }
 
 pub(crate) fn count_tool_result(counts: &mut ToolCounts, result: &ToolResultEnvelope) {
