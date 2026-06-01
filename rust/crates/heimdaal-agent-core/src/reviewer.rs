@@ -15,6 +15,7 @@ pub use crate::concurrent::tool_registry::{
     CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOutput, ToolDefinition,
     ToolRegistry, ToolSchema,
 };
+pub use crate::concurrent::tools::ConcurrentArtifactStore as ArtifactStore;
 pub use crate::contracts::{AgentBudget, Role, TokenUsage, ToolCounts};
 
 #[derive(Debug, Clone)]
@@ -44,4 +45,19 @@ pub struct SnapshotHandle {
 
 pub trait EventSink: Send + Sync {
     fn emit(&self, event: RuntimeEvent);
+}
+
+pub trait ArtifactReader: Send + Sync {
+    fn get_artifact(&self, artifact_id: &ArtifactId) -> Option<ArtifactView>;
+    fn list_artifacts(&self) -> Vec<ArtifactView>;
+}
+
+impl ArtifactReader for ArtifactStore {
+    fn get_artifact(&self, artifact_id: &ArtifactId) -> Option<ArtifactView> {
+        self.get(artifact_id)
+    }
+
+    fn list_artifacts(&self) -> Vec<ArtifactView> {
+        self.list()
+    }
 }

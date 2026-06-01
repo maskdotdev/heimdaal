@@ -10,9 +10,9 @@
     "use|fn|struct"
   ],
   "exit_code": 0,
-  "duration_s": 0.297,
+  "duration_s": 0.315,
   "peak": {
-    "rss_mb": 10.77,
+    "rss_mb": 12.19,
     "pss_mb": null,
     "uss_mb": null,
     "process_count": 1
@@ -22,71 +22,64 @@
     "pss_mb": null,
     "uss_mb": null,
     "process_count": 0,
-    "t": 0.297
+    "t": 0.315
   },
   "samples": [
     {
-      "rss_mb": 6.25,
+      "rss_mb": 5.58,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
       "t": 0.009
     },
     {
-      "rss_mb": 8.08,
+      "rss_mb": 10.48,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.049
+      "t": 0.1
     },
     {
-      "rss_mb": 8.39,
+      "rss_mb": 12.05,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.088
+      "t": 0.15
     },
     {
-      "rss_mb": 9.05,
+      "rss_mb": 12.17,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.131
+      "t": 0.185
     },
     {
-      "rss_mb": 10.75,
+      "rss_mb": 12.17,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.167
+      "t": 0.221
     },
     {
-      "rss_mb": 10.77,
+      "rss_mb": 12.19,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.201
-    },
-    {
-      "rss_mb": 10.77,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 0.236
+      "t": 0.254
     },
     {
       "rss_mb": 0.0,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 0,
-      "t": 0.266
+      "t": 0.283
     },
     {
       "rss_mb": 0.0,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 0,
-      "t": 0.297
+      "t": 0.315
     }
   ],
   "stdout_lines": [
@@ -114,12 +107,12 @@
     "      \"finish\": 0",
     "    },",
     "    \"findings\": 100,",
-    "    \"elapsedMs\": 146,",
+    "    \"elapsedMs\": 145,",
     "    \"inputTokens\": 0,",
     "    \"outputTokens\": 0,",
     "    \"totalTokens\": 0,",
-    "    \"artifacts\": 202,",
-    "    \"artifactBytes\": 2284994,",
+    "    \"artifacts\": 204,",
+    "    \"artifactBytes\": 2287488,",
     "    \"counters\": {",
     "      \"searchScans\": 100,",
     "      \"searchDedupeWaiters\": 0,",
@@ -165,25 +158,25 @@
     "      \"searchScans\": 1,",
     "      \"searchDedupeWaiters\": 99,",
     "      \"searchCacheHits\": 0,",
-    "      \"readCacheHits\": 1,",
+    "      \"readCacheHits\": 0,",
     "      \"readFileReads\": 1,",
     "      \"toolErrors\": 0,",
-    "      \"artifactCacheHits\": 183",
+    "      \"artifactCacheHits\": 180",
     "    },",
     "    \"toolMetrics\": {",
     "      \"read_diff\": {",
     "        \"calls\": 100,",
     "        \"successes\": 100,",
     "        \"errors\": 0,",
-    "        \"cacheHits\": 94,",
-    "        \"deduped\": 5,",
+    "        \"cacheHits\": 90,",
+    "        \"deduped\": 9,",
     "        \"outputBytes\": 123400",
     "      },",
     "      \"read_file\": {",
     "        \"calls\": 100,",
     "        \"successes\": 100,",
     "        \"errors\": 0,",
-    "        \"cacheHits\": 89,",
+    "        \"cacheHits\": 90,",
     "        \"deduped\": 9,",
     "        \"outputBytes\": 124700",
     "      },",
@@ -207,7 +200,7 @@
     "    \"benchmarkValid\": true,",
     "    \"benchmarkFailures\": []",
     "  },",
-    "  \"speedup\": 18.25,",
+    "  \"speedup\": 18.125,",
     "  \"searchScanReduction\": 100.0",
     "}"
   ],

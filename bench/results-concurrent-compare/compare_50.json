@@ -10,9 +10,9 @@
     "use|fn|struct"
   ],
   "exit_code": 0,
-  "duration_s": 0.79,
+  "duration_s": 0.558,
   "peak": {
-    "rss_mb": 8.62,
+    "rss_mb": 11.47,
     "pss_mb": null,
     "uss_mb": null,
     "process_count": 1
@@ -22,7 +22,7 @@
     "pss_mb": null,
     "uss_mb": null,
     "process_count": 0,
-    "t": 0.79
+    "t": 0.558
   },
   "samples": [
     {
@@ -30,161 +30,112 @@
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.006
+      "t": 0.007
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.038
+      "t": 0.043
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.068
+      "t": 0.08
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.1
+      "t": 0.117
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.137
+      "t": 0.153
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.173
+      "t": 0.184
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.207
+      "t": 0.219
     },
     {
-      "rss_mb": 0.03,
+      "rss_mb": 2.8,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.242
+      "t": 0.26
     },
     {
-      "rss_mb": 0.03,
+      "rss_mb": 7.17,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.28
-    },
-    {
-      "rss_mb": 4.44,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 0.313
-    },
-    {
-      "rss_mb": 7.11,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 0.369
-    },
-    {
-      "rss_mb": 8.55,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 0.401
-    },
-    {
-      "rss_mb": 8.58,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 0.436
-    },
-    {
-      "rss_mb": 8.61,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 0.471
-    },
-    {
-      "rss_mb": 8.61,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 0.507
+      "t": 0.306
     },
     {
       "rss_mb": 8.62,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.543
+      "t": 0.351
     },
     {
-      "rss_mb": 8.62,
+      "rss_mb": 8.66,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.578
+      "t": 0.382
     },
     {
-      "rss_mb": 8.62,
+      "rss_mb": 8.7,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.613
+      "t": 0.418
     },
     {
-      "rss_mb": 8.62,
+      "rss_mb": 8.7,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.649
+      "t": 0.455
     },
     {
-      "rss_mb": 8.62,
+      "rss_mb": 8.72,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.684
+      "t": 0.491
     },
     {
-      "rss_mb": 8.62,
+      "rss_mb": 11.47,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.72
-    },
-    {
-      "rss_mb": 8.62,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 0.755
+      "t": 0.528
     },
     {
       "rss_mb": 0.0,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 0,
-      "t": 0.79
+      "t": 0.558
     }
   ],
   "stdout_lines": [
@@ -212,7 +163,7 @@
     "      \"finish\": 0",
     "    },",
     "    \"findings\": 50,",
-    "    \"elapsedMs\": 80,",
+    "    \"elapsedMs\": 81,",
     "    \"inputTokens\": 0,",
     "    \"outputTokens\": 0,",
     "    \"totalTokens\": 0,",
@@ -266,23 +217,23 @@
     "      \"readCacheHits\": 0,",
     "      \"readFileReads\": 1,",
     "      \"toolErrors\": 0,",
-    "      \"artifactCacheHits\": 56",
+    "      \"artifactCacheHits\": 81",
     "    },",
     "    \"toolMetrics\": {",
     "      \"read_diff\": {",
     "        \"calls\": 50,",
     "        \"successes\": 50,",
     "        \"errors\": 0,",
-    "        \"cacheHits\": 26,",
-    "        \"deduped\": 23,",
+    "        \"cacheHits\": 42,",
+    "        \"deduped\": 7,",
     "        \"outputBytes\": 61700",
     "      },",
     "      \"read_file\": {",
     "        \"calls\": 50,",
     "        \"successes\": 50,",
     "        \"errors\": 0,",
-    "        \"cacheHits\": 30,",
-    "        \"deduped\": 19,",
+    "        \"cacheHits\": 39,",
+    "        \"deduped\": 10,",
     "        \"outputBytes\": 62350",
     "      },",
     "      \"record_finding\": {",
@@ -305,7 +256,7 @@
     "    \"benchmarkValid\": true,",
     "    \"benchmarkFailures\": []",
     "  },",
-    "  \"speedup\": 11.428571428571429,",
+    "  \"speedup\": 11.571428571428571,",
     "  \"searchScanReduction\": 50.0",
     "}"
   ],

@@ -803,7 +803,7 @@ impl ToolEngine {
         self.counters.snapshot()
     }
 
-    pub(crate) fn snapshot_tool_metrics(&self) -> BTreeMap<String, ToolMetricsSnapshot> {
+    pub(crate) fn snapshot_tool_metrics(&self) -> BTreeMap<ToolMetricKey, ToolMetricsSnapshot> {
         self.metrics.snapshot()
     }
 
@@ -1119,7 +1119,7 @@ fn scan_file(
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct ConcurrentArtifactStore {
+pub struct ConcurrentArtifactStore {
     by_id: DashMap<String, Arc<ConcurrentArtifact>>,
     order: Mutex<Vec<String>>,
 }
@@ -1146,19 +1146,19 @@ impl ConcurrentArtifactStore {
         artifact_id
     }
 
-    pub(crate) fn stats(&self) -> (usize, usize) {
+    pub fn stats(&self) -> (usize, usize) {
         let artifacts = self.by_id.iter().collect::<Vec<_>>();
         let bytes = artifacts.iter().map(|item| item.bytes).sum();
         (artifacts.len(), bytes)
     }
 
-    pub(crate) fn get(&self, artifact_id: &ArtifactId) -> Option<ArtifactView> {
+    pub fn get(&self, artifact_id: &ArtifactId) -> Option<ArtifactView> {
         self.by_id
             .get(&artifact_id.0)
             .map(|artifact| artifact.as_ref().view())
     }
 
-    pub(crate) fn list(&self) -> Vec<ArtifactView> {
+    pub fn list(&self) -> Vec<ArtifactView> {
         self.order
             .lock()
             .iter()
@@ -1313,10 +1313,12 @@ impl ConcurrentToolMetricsStore {
             .fetch_add(result.limits.output_bytes, Ordering::Relaxed);
     }
 
-    fn snapshot(&self) -> BTreeMap<String, ToolMetricsSnapshot> {
+    fn snapshot(&self) -> BTreeMap<ToolMetricKey, ToolMetricsSnapshot> {
         let mut snapshot = BTreeMap::new();
         for entry in self.by_tool.iter() {
-            snapshot.insert(entry.key().clone(), entry.value().snapshot());
+            let tool_id = ToolId::parse(entry.key())
+                .expect("tool metrics keys are recorded from validated tool ids");
+            snapshot.insert(tool_id, entry.value().snapshot());
         }
         snapshot
     }

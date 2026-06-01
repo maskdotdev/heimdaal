@@ -687,7 +687,7 @@ pub struct ConcurrentRunReport {
     pub artifacts: usize,
     pub artifact_bytes: usize,
     pub counters: ConcurrentCounters,
-    pub tool_metrics: BTreeMap<String, ToolMetricsSnapshot>,
+    pub tool_metrics: BTreeMap<ToolMetricKey, ToolMetricsSnapshot>,
     pub benchmark_valid: bool,
     pub benchmark_failures: Vec<String>,
 }

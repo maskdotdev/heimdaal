@@ -277,8 +277,9 @@ mod tests {
         let counters = engine.snapshot_counters();
         assert_eq!(counters.search_scans, 2);
         let metrics = engine.snapshot_tool_metrics();
-        assert_eq!(metrics["search_text"].calls, 2);
-        assert_eq!(metrics["search_text"].successes, 2);
+        let search_metrics = &metrics[&ToolId::from(ToolName::SearchText)];
+        assert_eq!(search_metrics.calls, 2);
+        assert_eq!(search_metrics.successes, 2);
     }
 
     #[test]
@@ -351,9 +352,10 @@ mod tests {
         assert!(data.contains("[REDACTED]"));
         assert!(!data.contains("AKIA1234567890ABCDEF"));
         let metrics = engine.snapshot_tool_metrics();
-        assert_eq!(metrics["host_custom_check"].calls, 2);
-        assert_eq!(metrics["host_custom_check"].successes, 1);
-        assert_eq!(metrics["host_custom_check"].errors, 1);
+        let custom_metrics = &metrics[&tool_id];
+        assert_eq!(custom_metrics.calls, 2);
+        assert_eq!(custom_metrics.successes, 1);
+        assert_eq!(custom_metrics.errors, 1);
     }
 
     #[derive(Debug)]
