@@ -1,0 +1,229 @@
+{
+  "cmd": [
+    "/Users/mask/code/review/heimdaal/rust/target/release/heimdaal-agent-core",
+    "compare-concurrent",
+    "--repo",
+    "/Users/mask/code/review/heimdaal",
+    "--sessions",
+    "50",
+    "--query",
+    "use|fn|struct"
+  ],
+  "exit_code": 0,
+  "duration_s": 0.508,
+  "peak": {
+    "rss_mb": 9.3,
+    "pss_mb": null,
+    "uss_mb": null,
+    "process_count": 1
+  },
+  "last": {
+    "rss_mb": 0.0,
+    "pss_mb": null,
+    "uss_mb": null,
+    "process_count": 0,
+    "t": 0.508
+  },
+  "samples": [
+    {
+      "rss_mb": 0.03,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.008
+    },
+    {
+      "rss_mb": 0.03,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.037
+    },
+    {
+      "rss_mb": 0.03,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.12
+    },
+    {
+      "rss_mb": 0.03,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.145
+    },
+    {
+      "rss_mb": 0.03,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.172
+    },
+    {
+      "rss_mb": 0.03,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.201
+    },
+    {
+      "rss_mb": 0.03,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.233
+    },
+    {
+      "rss_mb": 0.03,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.26
+    },
+    {
+      "rss_mb": 6.55,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.297
+    },
+    {
+      "rss_mb": 8.12,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.333
+    },
+    {
+      "rss_mb": 9.25,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.364
+    },
+    {
+      "rss_mb": 9.3,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.394
+    },
+    {
+      "rss_mb": 9.3,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.421
+    },
+    {
+      "rss_mb": 9.3,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.451
+    },
+    {
+      "rss_mb": 9.3,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.479
+    },
+    {
+      "rss_mb": 0.0,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 0,
+      "t": 0.508
+    }
+  ],
+  "stdout_lines": [
+    "{",
+    "  \"sessions\": 50,",
+    "  \"sync\": {",
+    "    \"runtime\": \"sync\",",
+    "    \"sessions\": 50,",
+    "    \"completedSessions\": 50,",
+    "    \"modelCalls\": 100,",
+    "    \"toolCalls\": 200,",
+    "    \"toolCounts\": {",
+    "      \"listChangedFiles\": 0,",
+    "      \"readDiff\": 50,",
+    "      \"listFiles\": 0,",
+    "      \"readFile\": 50,",
+    "      \"readBaseFile\": 0,",
+    "      \"readHeadFile\": 0,",
+    "      \"searchText\": 50,",
+    "      \"findRelatedFiles\": 0,",
+    "      \"findTestsForFile\": 0,",
+    "      \"listImports\": 0,",
+    "      \"recordFinding\": 50,",
+    "      \"challengeFinding\": 0,",
+    "      \"finish\": 0",
+    "    },",
+    "    \"findings\": 50,",
+    "    \"elapsedMs\": 74,",
+    "    \"inputTokens\": 0,",
+    "    \"outputTokens\": 0,",
+    "    \"totalTokens\": 0,",
+    "    \"artifacts\": 108,",
+    "    \"artifactBytes\": 1151226,",
+    "    \"counters\": {",
+    "      \"searchScans\": 50,",
+    "      \"searchDedupeWaiters\": 0,",
+    "      \"searchCacheHits\": 0,",
+    "      \"readCacheHits\": 49,",
+    "      \"readFileReads\": 1,",
+    "      \"toolErrors\": 0,",
+    "      \"artifactCacheHits\": 0",
+    "    },",
+    "    \"benchmarkValid\": true,",
+    "    \"benchmarkFailures\": []",
+    "  },",
+    "  \"concurrent\": {",
+    "    \"runtime\": \"concurrent\",",
+    "    \"sessions\": 50,",
+    "    \"completedSessions\": 50,",
+    "    \"modelCalls\": 100,",
+    "    \"toolCalls\": 200,",
+    "    \"toolCounts\": {",
+    "      \"listChangedFiles\": 0,",
+    "      \"readDiff\": 50,",
+    "      \"listFiles\": 0,",
+    "      \"readFile\": 50,",
+    "      \"readBaseFile\": 0,",
+    "      \"readHeadFile\": 0,",
+    "      \"searchText\": 50,",
+    "      \"findRelatedFiles\": 0,",
+    "      \"findTestsForFile\": 0,",
+    "      \"listImports\": 0,",
+    "      \"recordFinding\": 50,",
+    "      \"challengeFinding\": 0,",
+    "      \"finish\": 0",
+    "    },",
+    "    \"findings\": 50,",
+    "    \"elapsedMs\": 7,",
+    "    \"inputTokens\": 40000,",
+    "    \"outputTokens\": 6400,",
+    "    \"totalTokens\": 46400,",
+    "    \"artifacts\": 3,",
+    "    \"artifactBytes\": 30734,",
+    "    \"counters\": {",
+    "      \"searchScans\": 1,",
+    "      \"searchDedupeWaiters\": 49,",
+    "      \"searchCacheHits\": 0,",
+    "      \"readCacheHits\": 0,",
+    "      \"readFileReads\": 1,",
+    "      \"toolErrors\": 0,",
+    "      \"artifactCacheHits\": 52",
+    "    },",
+    "    \"benchmarkValid\": true,",
+    "    \"benchmarkFailures\": []",
+    "  },",
+    "  \"speedup\": 10.571428571428571,",
+    "  \"searchScanReduction\": 50.0",
+    "}"
+  ],
+  "stderr_lines": []
+}
