@@ -8,7 +8,7 @@ const resultsDir = path.join(benchDir, "results-rust-oai-mvp");
 const python = process.env.PYTHON || path.join(benchDir, ".venv", "bin", "python");
 const node = process.execPath;
 const binary = path.join(root, "rust", "target", "release", "heimdaal-agent-core");
-const model = process.env.RUST_MVP_MODEL || "gpt-5-nano";
+const model = process.env.RUST_MVP_MODEL || "gpt-4.1-nano";
 const sessions = (process.env.RUST_MVP_SESSIONS || "1,10")
   .split(",")
   .map((value) => Number(value.trim()))
@@ -59,6 +59,15 @@ for (const count of sessions) {
 }
 
 await run([node, path.join(benchDir, "summarize-results.mjs"), resultsDir], root);
+await run(
+  [
+    node,
+    path.join(benchDir, "check-rust-mvp-proof.mjs"),
+    resultsDir,
+    `--sessions=${sessions.join(",")}`,
+  ],
+  root,
+);
 
 function run(cmd, cwd) {
   return new Promise((resolve, reject) => {

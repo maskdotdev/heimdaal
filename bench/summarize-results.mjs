@@ -102,6 +102,9 @@ for (const file of files) {
     listFilesCalls: settled?.list_files_calls ?? null,
     readFileCalls: settled?.read_file_calls ?? null,
     searchTextCalls: settled?.search_text_calls ?? null,
+    finishCalls: settled?.finish_calls ?? null,
+    findings: settled?.findings ?? null,
+    publishableFindings: settled?.publishable_findings ?? null,
     tokensIn: settled?.tokens_in ?? null,
     tokensOut: settled?.tokens_out ?? null,
     tokensTotal: settled?.tokens_total ?? null,
@@ -182,10 +185,10 @@ if (autonomousWorkRows.length) {
     md += `\n\n`;
   }
   md += `These rows are eligible for the agent comparison only when the model-driven session produced tool calls. Prompted sessions with zero tool calls are shown, but they are not valid filesystem-tool benchmarks.\n\n`;
-  md += `| Case | Model | Exit | Valid | Peak tree MB | Root RSS baseline | Root RSS after work | Model calls | Tool calls/results | Review tools changed/diff/list/read/search | Tokens in/out/total | Cost |\n`;
-  md += `| --- | --- | ---: | --- | ---: | ---: | ---: | ---: | --- | --- | --- | ---: |\n`;
+  md += `| Case | Model | Exit | Valid | Peak tree MB | Root RSS baseline | Root RSS after work | Model calls | Tool calls/results | Review tools changed/diff/list/read/search | Findings | Tokens in/out/total | Cost |\n`;
+  md += `| --- | --- | ---: | --- | ---: | ---: | ---: | ---: | --- | --- | ---: | --- | ---: |\n`;
   for (const row of autonomousWorkRows) {
-    md += `| ${row.label} | ${row.model ?? "n/a"} | ${row.exitCode} | ${row.benchmarkValid ?? "n/a"} | ${fmt(row.peakTree)} | ${fmt(row.baselineProcess)} | ${fmt(row.settledProcess)} | ${row.modelCalls ?? "n/a"} | ${row.toolCalls ?? "n/a"}/${row.toolResults ?? "n/a"} | ${row.listChangedFilesCalls ?? "n/a"}/${row.readDiffCalls ?? "n/a"}/${row.listFilesCalls ?? "n/a"}/${row.readFileCalls ?? "n/a"}/${row.searchTextCalls ?? "n/a"} | ${row.tokensIn ?? "n/a"}/${row.tokensOut ?? "n/a"}/${row.tokensTotal ?? "n/a"} | ${fmt(row.cost, 6)} |\n`;
+    md += `| ${row.label} | ${row.model ?? "n/a"} | ${row.exitCode} | ${row.benchmarkValid ?? "n/a"} | ${fmt(row.peakTree)} | ${fmt(row.baselineProcess)} | ${fmt(row.settledProcess)} | ${row.modelCalls ?? "n/a"} | ${row.toolCalls ?? "n/a"}/${row.toolResults ?? "n/a"} | ${row.listChangedFilesCalls ?? "n/a"}/${row.readDiffCalls ?? "n/a"}/${row.listFilesCalls ?? "n/a"}/${row.readFileCalls ?? "n/a"}/${row.searchTextCalls ?? "n/a"} | ${row.findings ?? "n/a"} | ${row.tokensIn ?? "n/a"}/${row.tokensOut ?? "n/a"}/${row.tokensTotal ?? "n/a"} | ${fmt(row.cost, 6)} |\n`;
   }
   md += `\n`;
 }
@@ -213,11 +216,11 @@ if (ranking.length) {
 }
 
 md += `## All Cases\n\n`;
-md += `| Case | Exit | Valid | Metric | Peak tree MB | Extra tree MB/additional agent | Root RSS baseline | Root RSS created | Root RSS settled | Model calls | Tool calls/results | Review tools changed/diff/list/read/search | Root create delta MB | Peak processes | Duration s | Tokens in/out/total |\n`;
-md += `| --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | --- |\n`;
+md += `| Case | Exit | Valid | Metric | Peak tree MB | Extra tree MB/additional agent | Root RSS baseline | Root RSS created | Root RSS settled | Model calls | Tool calls/results | Review tools changed/diff/list/read/search | Findings | Root create delta MB | Peak processes | Duration s | Tokens in/out/total |\n`;
+md += `| --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | --- |\n`;
 
 for (const row of rows) {
-  md += `| ${row.label} | ${row.exitCode} | ${row.benchmarkValid ?? "n/a"} | ${row.metric} | ${fmt(row.peakTree)} | ${fmt(row.additionalTreeMb, 4)} | ${fmt(row.baselineProcess)} | ${fmt(row.createdProcess)} | ${fmt(row.settledProcess)} | ${row.modelCalls ?? "n/a"} | ${row.toolCalls ?? "n/a"}/${row.toolResults ?? "n/a"} | ${row.listChangedFilesCalls ?? "n/a"}/${row.readDiffCalls ?? "n/a"}/${row.listFilesCalls ?? "n/a"}/${row.readFileCalls ?? "n/a"}/${row.searchTextCalls ?? "n/a"} | ${fmt(row.processCreateDelta)} | ${fmt(row.processCount, 0)} | ${fmt(row.duration)} | ${row.tokensIn ?? "n/a"}/${row.tokensOut ?? "n/a"}/${row.tokensTotal ?? "n/a"} |\n`;
+  md += `| ${row.label} | ${row.exitCode} | ${row.benchmarkValid ?? "n/a"} | ${row.metric} | ${fmt(row.peakTree)} | ${fmt(row.additionalTreeMb, 4)} | ${fmt(row.baselineProcess)} | ${fmt(row.createdProcess)} | ${fmt(row.settledProcess)} | ${row.modelCalls ?? "n/a"} | ${row.toolCalls ?? "n/a"}/${row.toolResults ?? "n/a"} | ${row.listChangedFilesCalls ?? "n/a"}/${row.readDiffCalls ?? "n/a"}/${row.listFilesCalls ?? "n/a"}/${row.readFileCalls ?? "n/a"}/${row.searchTextCalls ?? "n/a"} | ${row.findings ?? "n/a"} | ${fmt(row.processCreateDelta)} | ${fmt(row.processCount, 0)} | ${fmt(row.duration)} | ${row.tokensIn ?? "n/a"}/${row.tokensOut ?? "n/a"}/${row.tokensTotal ?? "n/a"} |\n`;
 }
 
 const failed = rows.filter((row) => row.exitCode !== 0);

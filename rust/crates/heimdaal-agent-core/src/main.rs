@@ -1,3 +1,7 @@
+#![allow(dead_code)]
+
+// V1 contracts include states and variants that are part of the frozen protocol
+// but are not all exercised by the narrow MVP benchmark path yet.
 use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::ffi::{CString, OsStr};
@@ -19,7 +23,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 
 const SCHEMA_VERSION: &str = "heimdaal.review-run.v1";
-const DEFAULT_MODEL: &str = "gpt-5-nano";
+const DEFAULT_MODEL: &str = "gpt-4.1-nano";
 
 #[derive(Parser, Debug)]
 #[command(name = "heimdaal-agent-core")]
@@ -2844,6 +2848,7 @@ struct BenchEvent<'a> {
     list_files_calls: usize,
     read_file_calls: usize,
     search_text_calls: usize,
+    finish_calls: usize,
     findings: usize,
     publishable_findings: usize,
     blackboard_entries: usize,
@@ -2871,6 +2876,7 @@ fn log_bench_event(label: &str, model: &str, sessions: usize, report: Option<&Ru
         list_files_calls: report.map_or(0, |value| value.tool_counts.list_files),
         read_file_calls: report.map_or(0, |value| value.tool_counts.read_file),
         search_text_calls: report.map_or(0, |value| value.tool_counts.search_text),
+        finish_calls: report.map_or(0, |value| value.tool_counts.finish),
         findings: report.map_or(0, |value| value.findings),
         publishable_findings: report.map_or(0, |value| value.publishable_findings),
         blackboard_entries: report.map_or(0, |value| value.blackboard_entries),
