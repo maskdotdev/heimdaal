@@ -87,7 +87,7 @@ This is the right direction for other engines because a host can expose differen
 
 Build the host-facing primitive boundary:
 
-1. Convert `heimdaal-agent-core` into a reusable library plus CLI binary.
+1. Convert `muzen` into a reusable library plus CLI binary.
 2. Add `ModelRouter` so each session resolves its own provider profile and credential.
 3. Add `SessionScope` with cwd, allowed built-ins, allowed custom tools, and repo-root policy.
 4. Add `ToolMetrics` as a dynamic map keyed by `ToolId`.

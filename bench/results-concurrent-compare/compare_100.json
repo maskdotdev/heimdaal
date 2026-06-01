@@ -1,6 +1,6 @@
 {
   "cmd": [
-    "/Users/mask/code/review/heimdaal/rust/target/release/heimdaal-agent-core",
+    "/Users/mask/code/review/heimdaal/target/release/muzen",
     "compare-concurrent",
     "--repo",
     "/Users/mask/code/review/heimdaal",
@@ -10,9 +10,9 @@
     "use|fn|struct"
   ],
   "exit_code": 0,
-  "duration_s": 0.315,
+  "duration_s": 0.348,
   "peak": {
-    "rss_mb": 12.19,
+    "rss_mb": 10.2,
     "pss_mb": null,
     "uss_mb": null,
     "process_count": 1
@@ -22,64 +22,78 @@
     "pss_mb": null,
     "uss_mb": null,
     "process_count": 0,
-    "t": 0.315
+    "t": 0.348
   },
   "samples": [
     {
-      "rss_mb": 5.58,
+      "rss_mb": 6.48,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.009
+      "t": 0.01
     },
     {
-      "rss_mb": 10.48,
+      "rss_mb": 8.38,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.1
+      "t": 0.051
     },
     {
-      "rss_mb": 12.05,
+      "rss_mb": 8.64,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.15
+      "t": 0.089
     },
     {
-      "rss_mb": 12.17,
+      "rss_mb": 8.89,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.185
+      "t": 0.127
     },
     {
-      "rss_mb": 12.17,
+      "rss_mb": 10.17,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.221
+      "t": 0.17
     },
     {
-      "rss_mb": 12.19,
+      "rss_mb": 10.19,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.254
+      "t": 0.207
+    },
+    {
+      "rss_mb": 10.19,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.241
+    },
+    {
+      "rss_mb": 10.19,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.276
+    },
+    {
+      "rss_mb": 10.2,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.312
     },
     {
       "rss_mb": 0.0,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 0,
-      "t": 0.283
-    },
-    {
-      "rss_mb": 0.0,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 0,
-      "t": 0.315
+      "t": 0.348
     }
   ],
   "stdout_lines": [
@@ -111,8 +125,8 @@
     "    \"inputTokens\": 0,",
     "    \"outputTokens\": 0,",
     "    \"totalTokens\": 0,",
-    "    \"artifacts\": 204,",
-    "    \"artifactBytes\": 2287488,",
+    "    \"artifacts\": 201,",
+    "    \"artifactBytes\": 2282047,",
     "    \"counters\": {",
     "      \"searchScans\": 100,",
     "      \"searchDedupeWaiters\": 0,",
@@ -148,12 +162,12 @@
     "      \"finish\": 0",
     "    },",
     "    \"findings\": 100,",
-    "    \"elapsedMs\": 8,",
+    "    \"elapsedMs\": 7,",
     "    \"inputTokens\": 80000,",
     "    \"outputTokens\": 12800,",
     "    \"totalTokens\": 92800,",
     "    \"artifacts\": 3,",
-    "    \"artifactBytes\": 30734,",
+    "    \"artifactBytes\": 30717,",
     "    \"counters\": {",
     "      \"searchScans\": 1,",
     "      \"searchDedupeWaiters\": 99,",
@@ -161,23 +175,23 @@
     "      \"readCacheHits\": 0,",
     "      \"readFileReads\": 1,",
     "      \"toolErrors\": 0,",
-    "      \"artifactCacheHits\": 180",
+    "      \"artifactCacheHits\": 189",
     "    },",
     "    \"toolMetrics\": {",
     "      \"read_diff\": {",
     "        \"calls\": 100,",
     "        \"successes\": 100,",
     "        \"errors\": 0,",
-    "        \"cacheHits\": 90,",
-    "        \"deduped\": 9,",
-    "        \"outputBytes\": 123400",
+    "        \"cacheHits\": 95,",
+    "        \"deduped\": 4,",
+    "        \"outputBytes\": 121700",
     "      },",
     "      \"read_file\": {",
     "        \"calls\": 100,",
     "        \"successes\": 100,",
     "        \"errors\": 0,",
-    "        \"cacheHits\": 90,",
-    "        \"deduped\": 9,",
+    "        \"cacheHits\": 94,",
+    "        \"deduped\": 5,",
     "        \"outputBytes\": 124700",
     "      },",
     "      \"record_finding\": {",
@@ -200,7 +214,7 @@
     "    \"benchmarkValid\": true,",
     "    \"benchmarkFailures\": []",
     "  },",
-    "  \"speedup\": 18.125,",
+    "  \"speedup\": 20.714285714285715,",
     "  \"searchScanReduction\": 100.0",
     "}"
   ],

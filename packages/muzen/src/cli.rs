@@ -13,7 +13,7 @@ use crate::runtime::{run_review, EventEmitter};
 use crate::util::{redact_known_secrets, DEFAULT_MODEL, SCHEMA_VERSION};
 
 #[derive(Parser, Debug)]
-#[command(name = "heimdaal-agent-core")]
+#[command(name = "muzen")]
 #[command(about = "Rust read-only review-runtime MVP for Heimdaal")]
 pub(crate) struct Cli {
     #[command(subcommand)]

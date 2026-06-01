@@ -7,7 +7,7 @@ const benchDir = path.join(root, "bench");
 const resultsDir = path.join(benchDir, "results-rust-oai-mvp");
 const python = process.env.PYTHON || path.join(benchDir, ".venv", "bin", "python");
 const node = process.execPath;
-const binary = path.join(root, "rust", "target", "release", "heimdaal-agent-core");
+const binary = path.join(root, "target", "release", "muzen");
 const model = process.env.RUST_MVP_MODEL || "gpt-4.1-nano";
 const sessions = (process.env.RUST_MVP_SESSIONS || "1,10")
   .split(",")
@@ -20,8 +20,8 @@ const maxOutputTokens = process.env.RUST_MVP_MAX_OUTPUT_TOKENS || "128";
 
 await mkdir(resultsDir, { recursive: true });
 
-await run(["cargo", "test", "--manifest-path", path.join(root, "rust", "Cargo.toml")], root);
-await run(["cargo", "build", "--release", "--manifest-path", path.join(root, "rust", "Cargo.toml")], root);
+await run(["cargo", "test", "--manifest-path", path.join(root, "Cargo.toml")], root);
+await run(["cargo", "build", "--release", "--manifest-path", path.join(root, "Cargo.toml")], root);
 
 for (const count of sessions) {
   const name = `rust_work_${count}`;

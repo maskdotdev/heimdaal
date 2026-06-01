@@ -7,7 +7,7 @@ const root = path.resolve(new URL("..", import.meta.url).pathname);
 const benchDir = path.join(root, "bench");
 const resultsDir = path.join(benchDir, "results-concurrent-compare");
 const node = process.execPath;
-const binary = path.join(root, "rust", "target", "release", "heimdaal-agent-core");
+const binary = path.join(root, "target", "release", "muzen");
 const repo = path.resolve(process.env.CONCURRENT_COMPARE_REPO || root);
 const query = process.env.CONCURRENT_COMPARE_QUERY || "use|fn|struct";
 const interval = process.env.CONCURRENT_COMPARE_INTERVAL || "0.02";
@@ -16,8 +16,8 @@ const sessions = parseSessions(process.env.CONCURRENT_COMPARE_SESSIONS || "50,10
 
 await mkdir(resultsDir, { recursive: true });
 
-await run(["cargo", "test", "--manifest-path", path.join(root, "rust", "Cargo.toml")], root);
-await run(["cargo", "build", "--release", "--manifest-path", path.join(root, "rust", "Cargo.toml")], root);
+await run(["cargo", "test", "--manifest-path", path.join(root, "Cargo.toml")], root);
+await run(["cargo", "build", "--release", "--manifest-path", path.join(root, "Cargo.toml")], root);
 
 for (const count of sessions) {
   const name = `compare_${count}`;

@@ -174,7 +174,7 @@ pub(crate) fn preferred_bench_file_score(path: &Path) -> usize {
     let text = path.to_string_lossy();
     if text == "README.md" {
         0
-    } else if text.contains("rust/crates/heimdaal-agent-core/src/main.rs") {
+    } else if text.contains("packages/muzen/src/main.rs") {
         1
     } else if text.contains("packages/review") {
         2
