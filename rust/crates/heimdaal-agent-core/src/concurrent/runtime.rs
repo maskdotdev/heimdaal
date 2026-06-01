@@ -17,6 +17,7 @@ pub(crate) struct ConcurrentSessionSpec {
     pub(crate) role: Role,
     pub(crate) objective: String,
     pub(crate) allowed_tools: ToolMask,
+    pub(crate) allowed_custom_tools: Vec<ToolId>,
     pub(crate) budget: AgentBudget,
 }
 
@@ -171,19 +172,22 @@ impl ConcurrentJobRuntime {
                             turn_id,
                             calls,
                             session.allowed_tools,
+                            &session.allowed_custom_tools,
                             cancel.child_token(),
                         )
                         .await;
                     let terminal = results.iter().any(|result| {
-                        matches!(result.tool_name, ToolName::RecordFinding | ToolName::Finish)
-                            && result.ok
+                        matches!(
+                            result.tool_name.as_builtin(),
+                            Some(ToolName::RecordFinding | ToolName::Finish)
+                        ) && result.ok
                     });
                     for result in results {
                         count_tool_result(&mut tool_counts, &result);
                         transcript.push(ConversationItem::ToolResult {
                             call_id: result.tool_call_id.clone(),
-                            name: result.tool_name,
-                            content: result,
+                            name: result.tool_name.clone(),
+                            content: Box::new(result),
                         });
                     }
                     if terminal || tool_counts.total() >= session.budget.max_tool_calls {

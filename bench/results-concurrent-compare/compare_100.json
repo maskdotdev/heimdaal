@@ -10,9 +10,9 @@
     "use|fn|struct"
   ],
   "exit_code": 0,
-  "duration_s": 0.279,
+  "duration_s": 0.311,
   "peak": {
-    "rss_mb": 14.0,
+    "rss_mb": 14.02,
     "pss_mb": null,
     "uss_mb": null,
     "process_count": 1
@@ -22,64 +22,71 @@
     "pss_mb": null,
     "uss_mb": null,
     "process_count": 0,
-    "t": 0.279
+    "t": 0.311
   },
   "samples": [
     {
-      "rss_mb": 5.66,
+      "rss_mb": 6.06,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
       "t": 0.008
     },
     {
-      "rss_mb": 10.84,
+      "rss_mb": 11.3,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.097
+      "t": 0.067
     },
     {
-      "rss_mb": 12.55,
+      "rss_mb": 12.06,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.137
+      "t": 0.121
     },
     {
       "rss_mb": 13.95,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.163
+      "t": 0.156
     },
     {
-      "rss_mb": 14.0,
+      "rss_mb": 14.02,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.193
+      "t": 0.186
     },
     {
-      "rss_mb": 14.0,
+      "rss_mb": 14.02,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.221
+      "t": 0.217
     },
     {
-      "rss_mb": 14.0,
+      "rss_mb": 14.02,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.248
+      "t": 0.244
+    },
+    {
+      "rss_mb": 14.02,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.278
     },
     {
       "rss_mb": 0.0,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 0,
-      "t": 0.279
+      "t": 0.311
     }
   ],
   "stdout_lines": [
@@ -107,12 +114,12 @@
     "      \"finish\": 0",
     "    },",
     "    \"findings\": 100,",
-    "    \"elapsedMs\": 148,",
+    "    \"elapsedMs\": 146,",
     "    \"inputTokens\": 0,",
     "    \"outputTokens\": 0,",
     "    \"totalTokens\": 0,",
-    "    \"artifacts\": 204,",
-    "    \"artifactBytes\": 2287488,",
+    "    \"artifacts\": 203,",
+    "    \"artifactBytes\": 2286241,",
     "    \"counters\": {",
     "      \"searchScans\": 100,",
     "      \"searchDedupeWaiters\": 0,",
@@ -157,15 +164,15 @@
     "      \"searchScans\": 1,",
     "      \"searchDedupeWaiters\": 99,",
     "      \"searchCacheHits\": 0,",
-    "      \"readCacheHits\": 0,",
+    "      \"readCacheHits\": 1,",
     "      \"readFileReads\": 1,",
     "      \"toolErrors\": 0,",
-    "      \"artifactCacheHits\": 161",
+    "      \"artifactCacheHits\": 182",
     "    },",
     "    \"benchmarkValid\": true,",
     "    \"benchmarkFailures\": []",
     "  },",
-    "  \"speedup\": 21.142857142857142,",
+    "  \"speedup\": 20.857142857142858,",
     "  \"searchScanReduction\": 100.0",
     "}"
   ],

@@ -120,6 +120,7 @@ fn run_concurrent(
             role: Role::for_index(index),
             objective: "Gather diff, file, and search evidence with concurrent tools.".to_string(),
             allowed_tools: ToolMask::review_read_only(),
+            allowed_custom_tools: Vec::new(),
             budget: AgentBudget {
                 max_turns: 4,
                 max_tool_calls: 8,

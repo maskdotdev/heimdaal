@@ -68,6 +68,60 @@ pub(crate) struct SessionId(pub(crate) String);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
+pub(crate) struct ToolId(String);
+
+impl ToolId {
+    pub(crate) fn parse(input: &str) -> RuntimeResult<Self> {
+        if input.is_empty() || input.len() > 64 {
+            return Err(RuntimeError::InvalidInput(
+                "invalid tool id length".to_string(),
+            ));
+        }
+        if !input
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+        {
+            return Err(RuntimeError::InvalidInput("invalid tool id".to_string()));
+        }
+        Ok(Self(input.to_string()))
+    }
+
+    pub(crate) fn from_builtin(tool: ToolName) -> Self {
+        Self(tool.as_str().to_string())
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub(crate) fn as_builtin(&self) -> Option<ToolName> {
+        match self.0.as_str() {
+            "list_changed_files" => Some(ToolName::ListChangedFiles),
+            "read_diff" => Some(ToolName::ReadDiff),
+            "list_files" => Some(ToolName::ListFiles),
+            "read_file" => Some(ToolName::ReadFile),
+            "read_base_file" => Some(ToolName::ReadBaseFile),
+            "read_head_file" => Some(ToolName::ReadHeadFile),
+            "search_text" => Some(ToolName::SearchText),
+            "find_related_files" => Some(ToolName::FindRelatedFiles),
+            "find_tests_for_file" => Some(ToolName::FindTestsForFile),
+            "list_imports" => Some(ToolName::ListImports),
+            "record_finding" => Some(ToolName::RecordFinding),
+            "challenge_finding" => Some(ToolName::ChallengeFinding),
+            "finish" => Some(ToolName::Finish),
+            _ => None,
+        }
+    }
+}
+
+impl From<ToolName> for ToolId {
+    fn from(value: ToolName) -> Self {
+        Self::from_builtin(value)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub(crate) struct RepoPath(PathBuf);
 
 impl RepoPath {
@@ -131,8 +185,8 @@ pub(crate) enum ConversationItem {
     },
     ToolResult {
         call_id: ToolCallId,
-        name: ToolName,
-        content: ToolResultEnvelope,
+        name: ToolId,
+        content: Box<ToolResultEnvelope>,
     },
 }
 
@@ -141,7 +195,7 @@ pub(crate) enum ConversationItem {
 pub(crate) struct ModelToolCall {
     pub(crate) call_id: ToolCallId,
     pub(crate) index: usize,
-    pub(crate) name: ToolName,
+    pub(crate) name: ToolId,
     pub(crate) raw_arguments: String,
 }
 
@@ -164,9 +218,11 @@ pub(crate) struct ToolInvocation {
     pub(crate) turn_id: TurnId,
     pub(crate) original_index: usize,
     pub(crate) call_id: ToolCallId,
-    pub(crate) name: ToolName,
+    pub(crate) tool_id: ToolId,
+    pub(crate) builtin_name: Option<ToolName>,
     pub(crate) args: ToolArgs,
     pub(crate) allowed_tools: ToolMask,
+    pub(crate) allowed_custom_tools: Vec<ToolId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,6 +233,7 @@ pub(crate) enum ToolArgs {
     SearchText { query: String },
     RecordFinding { title: String, claim: String },
     Finish { reason: String },
+    Raw(Value),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,7 +241,7 @@ pub(crate) enum ToolArgs {
 pub(crate) struct ToolResultEnvelope {
     pub(crate) ok: bool,
     pub(crate) tool_call_id: ToolCallId,
-    pub(crate) tool_name: ToolName,
+    pub(crate) tool_name: ToolId,
     pub(crate) snapshot_id: SnapshotId,
     pub(crate) artifact_id: Option<ArtifactId>,
     pub(crate) cache: CacheInfo,
@@ -197,7 +254,7 @@ impl ToolResultEnvelope {
     pub(crate) fn for_call(
         &self,
         call_id: ToolCallId,
-        tool_name: ToolName,
+        tool_name: ToolId,
         cache_status: CacheStatus,
     ) -> Self {
         let mut cloned = self.clone();
@@ -352,7 +409,7 @@ pub(crate) enum RuntimeEvent {
     },
     ToolCallCompleted {
         call_id: ToolCallId,
-        tool_name: ToolName,
+        tool_name: ToolId,
         cache_status: CacheStatus,
         output_bytes: usize,
     },

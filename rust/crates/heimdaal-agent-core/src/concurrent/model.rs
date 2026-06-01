@@ -9,6 +9,7 @@ use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 use crate::concurrent::contracts::*;
+use crate::concurrent::tool_registry::ToolRegistry;
 use crate::contracts::{ModelProfileRefV1, TokenUsage, ToolCallingMode, ToolName};
 use crate::model::resolve_credential_ref;
 
@@ -60,19 +61,19 @@ impl ConcurrentModelClient for MockReviewModel {
                     ModelToolCall {
                         call_id: ToolCallId(format!("{}-{}-read-diff", session_id.0, turn_id.0)),
                         index: 0,
-                        name: ToolName::ReadDiff,
+                        name: ToolId::from(ToolName::ReadDiff),
                         raw_arguments: "{}".to_string(),
                     },
                     ModelToolCall {
                         call_id: ToolCallId(format!("{}-{}-read-file", session_id.0, turn_id.0)),
                         index: 1,
-                        name: ToolName::ReadFile,
+                        name: ToolId::from(ToolName::ReadFile),
                         raw_arguments: json!({ "path": self.target_path }).to_string(),
                     },
                     ModelToolCall {
                         call_id: ToolCallId(format!("{}-{}-search", session_id.0, turn_id.0)),
                         index: 2,
-                        name: ToolName::SearchText,
+                        name: ToolId::from(ToolName::SearchText),
                         raw_arguments: json!({ "query": self.query }).to_string(),
                     },
                 ],
@@ -83,7 +84,7 @@ impl ConcurrentModelClient for MockReviewModel {
             calls: vec![ModelToolCall {
                 call_id: ToolCallId(format!("{}-{}-finding", session_id.0, turn_id.0)),
                 index: 0,
-                name: ToolName::RecordFinding,
+                name: ToolId::from(ToolName::RecordFinding),
                 raw_arguments: json!({
                     "title": format!("{} reviewed with parallel evidence", session_id.0),
                     "claim": "The benchmark session gathered diff, file, and search evidence."
@@ -121,6 +122,7 @@ pub(crate) struct OpenAiChatCompletionsClient {
     api_key: String,
     base_url: String,
     limiter: Arc<ModelLimiter>,
+    tool_registry: Arc<ToolRegistry>,
 }
 
 impl OpenAiChatCompletionsClient {
@@ -128,6 +130,7 @@ impl OpenAiChatCompletionsClient {
         profile: ModelProfileRefV1,
         base_url: String,
         limiter: Arc<ModelLimiter>,
+        tool_registry: Arc<ToolRegistry>,
     ) -> RuntimeResult<Self> {
         let api_key = resolve_credential_ref(&profile.credential_ref).map_err(|_| {
             RuntimeError::InvalidInput("model credential is unavailable".to_string())
@@ -142,6 +145,7 @@ impl OpenAiChatCompletionsClient {
             api_key,
             base_url: base_url.trim_end_matches('/').to_string(),
             limiter,
+            tool_registry,
         })
     }
 }
@@ -168,7 +172,7 @@ impl ConcurrentModelClient for OpenAiChatCompletionsClient {
         let mut body = json!({
             "model": self.profile.model,
             "messages": chat_messages(transcript)?,
-            "tools": tool_schemas(),
+            "tools": tool_schemas(&self.tool_registry),
             "tool_choice": match self.profile.tool_calling_mode {
                 ToolCallingMode::Required => "required",
                 ToolCallingMode::Auto => "auto",
@@ -201,7 +205,7 @@ impl ConcurrentModelClient for OpenAiChatCompletionsClient {
                 status: None,
                 retryable: false,
             })?;
-        parse_chat_response(decoded)
+        parse_chat_response(decoded, &self.tool_registry)
     }
 }
 
@@ -247,7 +251,10 @@ fn chat_messages(transcript: &[ConversationItem]) -> RuntimeResult<Vec<Value>> {
     Ok(messages)
 }
 
-fn parse_chat_response(response: ChatCompletionResponse) -> RuntimeResult<ModelTurn> {
+fn parse_chat_response(
+    response: ChatCompletionResponse,
+    tool_registry: &ToolRegistry,
+) -> RuntimeResult<ModelTurn> {
     let usage = response.usage.unwrap_or_default().into_token_usage();
     let message = response
         .choices
@@ -272,7 +279,10 @@ fn parse_chat_response(response: ChatCompletionResponse) -> RuntimeResult<ModelT
                     retryable: false,
                 });
             }
-            let name = tool_name_from_str(&call.function.name)?;
+            let name = ToolId::parse(&call.function.name)?;
+            if tool_registry.definition(&name).is_none() {
+                return Err(RuntimeError::InvalidInput("unknown tool name".to_string()));
+            }
             Ok(ModelToolCall {
                 call_id: ToolCallId(call.id),
                 index,
@@ -291,76 +301,21 @@ fn parse_chat_response(response: ChatCompletionResponse) -> RuntimeResult<ModelT
     }
 }
 
-fn tool_name_from_str(value: &str) -> RuntimeResult<ToolName> {
-    match value {
-        "read_diff" => Ok(ToolName::ReadDiff),
-        "list_files" => Ok(ToolName::ListFiles),
-        "read_file" => Ok(ToolName::ReadFile),
-        "read_head_file" => Ok(ToolName::ReadHeadFile),
-        "search_text" => Ok(ToolName::SearchText),
-        "record_finding" => Ok(ToolName::RecordFinding),
-        "finish" => Ok(ToolName::Finish),
-        _ => Err(RuntimeError::InvalidInput("unknown tool name".to_string())),
-    }
-}
-
-fn tool_schemas() -> Vec<Value> {
-    vec![
-        tool_schema("read_diff", "Read the review diff manifest.", json!({})),
-        tool_schema(
-            "list_files",
-            "List text/code files in the materialized repo.",
-            json!({}),
-        ),
-        tool_schema(
-            "read_file",
-            "Read a text file by repo-relative path.",
-            json!({"path": {"type": "string"}}),
-        ),
-        tool_schema(
-            "read_head_file",
-            "Read a head/review file by repo-relative path.",
-            json!({"path": {"type": "string"}}),
-        ),
-        tool_schema(
-            "search_text",
-            "Search repository text for literal terms separated by |.",
-            json!({"query": {"type": "string"}}),
-        ),
-        tool_schema(
-            "record_finding",
-            "Record one evidence-backed candidate finding.",
+fn tool_schemas(registry: &ToolRegistry) -> Vec<Value> {
+    registry
+        .schemas()
+        .into_iter()
+        .map(|schema| {
             json!({
-                "title": {"type": "string"},
-                "claim": {"type": "string"}
-            }),
-        ),
-        tool_schema(
-            "finish",
-            "Finish the review session.",
-            json!({"reason": {"type": "string"}}),
-        ),
-    ]
-}
-
-fn tool_schema(name: &str, description: &str, properties: Value) -> Value {
-    let required = properties
-        .as_object()
-        .map(|object| object.keys().cloned().collect::<Vec<_>>())
-        .unwrap_or_default();
-    json!({
-        "type": "function",
-        "function": {
-            "name": name,
-            "description": description,
-            "parameters": {
-                "type": "object",
-                "properties": properties,
-                "required": required,
-                "additionalProperties": false
-            }
-        }
-    })
+                "type": "function",
+                "function": {
+                            "name": schema.id.as_str(),
+                            "description": schema.description,
+                            "parameters": schema.parameters
+                }
+            })
+        })
+        .collect()
 }
 
 #[derive(Debug, Deserialize)]

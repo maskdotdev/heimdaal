@@ -10,9 +10,9 @@
     "use|fn|struct"
   ],
   "exit_code": 0,
-  "duration_s": 0.508,
+  "duration_s": 0.752,
   "peak": {
-    "rss_mb": 9.3,
+    "rss_mb": 9.77,
     "pss_mb": null,
     "uss_mb": null,
     "process_count": 1
@@ -22,7 +22,7 @@
     "pss_mb": null,
     "uss_mb": null,
     "process_count": 0,
-    "t": 0.508
+    "t": 0.752
   },
   "samples": [
     {
@@ -30,112 +30,154 @@
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.008
+      "t": 0.007
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.037
+      "t": 0.033
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.12
+      "t": 0.065
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.145
+      "t": 0.099
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.172
+      "t": 0.135
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.201
+      "t": 0.168
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.233
+      "t": 0.2
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.26
+      "t": 0.234
     },
     {
-      "rss_mb": 6.55,
+      "rss_mb": 6.11,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.297
+      "t": 0.28
     },
     {
-      "rss_mb": 8.12,
+      "rss_mb": 8.39,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.333
+      "t": 0.339
     },
     {
-      "rss_mb": 9.25,
+      "rss_mb": 9.67,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.364
+      "t": 0.374
     },
     {
-      "rss_mb": 9.3,
+      "rss_mb": 9.75,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.394
+      "t": 0.415
     },
     {
-      "rss_mb": 9.3,
+      "rss_mb": 9.75,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.421
+      "t": 0.449
     },
     {
-      "rss_mb": 9.3,
+      "rss_mb": 9.75,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.451
+      "t": 0.476
     },
     {
-      "rss_mb": 9.3,
+      "rss_mb": 9.77,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.479
+      "t": 0.512
+    },
+    {
+      "rss_mb": 9.77,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.545
+    },
+    {
+      "rss_mb": 9.77,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.58
+    },
+    {
+      "rss_mb": 9.77,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.615
+    },
+    {
+      "rss_mb": 9.77,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.65
+    },
+    {
+      "rss_mb": 9.77,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.683
+    },
+    {
+      "rss_mb": 9.77,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 0.719
     },
     {
       "rss_mb": 0.0,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 0,
-      "t": 0.508
+      "t": 0.752
     }
   ],
   "stdout_lines": [
@@ -163,12 +205,12 @@
     "      \"finish\": 0",
     "    },",
     "    \"findings\": 50,",
-    "    \"elapsedMs\": 74,",
+    "    \"elapsedMs\": 77,",
     "    \"inputTokens\": 0,",
     "    \"outputTokens\": 0,",
     "    \"totalTokens\": 0,",
-    "    \"artifacts\": 108,",
-    "    \"artifactBytes\": 1151226,",
+    "    \"artifacts\": 104,",
+    "    \"artifactBytes\": 1146238,",
     "    \"counters\": {",
     "      \"searchScans\": 50,",
     "      \"searchDedupeWaiters\": 0,",
@@ -216,12 +258,12 @@
     "      \"readCacheHits\": 0,",
     "      \"readFileReads\": 1,",
     "      \"toolErrors\": 0,",
-    "      \"artifactCacheHits\": 52",
+    "      \"artifactCacheHits\": 59",
     "    },",
     "    \"benchmarkValid\": true,",
     "    \"benchmarkFailures\": []",
     "  },",
-    "  \"speedup\": 10.571428571428571,",
+    "  \"speedup\": 11.0,",
     "  \"searchScanReduction\": 50.0",
     "}"
   ],

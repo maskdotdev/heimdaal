@@ -1,15 +1,21 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::concurrent::contracts::{
-    ModelToolCall, RepoPath, RuntimeLimits, SessionId, ToolCallId, TurnId,
+    ArtifactKey, LimitInfo, ModelToolCall, RepoPath, RuntimeLimits, SessionId, ToolCallId,
+    ToolErrorCode, ToolId, TurnId,
 };
 use crate::concurrent::repo::RepoSnapshot;
+use crate::concurrent::tool_registry::{
+    CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOutput, ToolRegistry,
+};
 use crate::concurrent::tools::ToolEngine;
 use crate::contracts::*;
 use crate::repo::RepoContext;
 use crate::runtime::{benchmark_failures, RuntimeReport};
 use crate::util::DEFAULT_MODEL;
+use async_trait::async_trait;
 
 #[cfg(test)]
 mod tests {
@@ -148,17 +154,18 @@ mod tests {
                 ModelToolCall {
                     call_id: ToolCallId("finish".to_string()),
                     index: 0,
-                    name: ToolName::Finish,
+                    name: ToolId::from(ToolName::Finish),
                     raw_arguments: r#"{"reason":"done"}"#.to_string(),
                 },
                 ModelToolCall {
                     call_id: ToolCallId("read".to_string()),
                     index: 1,
-                    name: ToolName::ReadDiff,
+                    name: ToolId::from(ToolName::ReadDiff),
                     raw_arguments: "{}".to_string(),
                 },
             ],
             ToolMask::review_read_only(),
+            &[],
             tokio_util::sync::CancellationToken::new(),
         ));
         assert_eq!(results.len(), 2);
@@ -197,10 +204,11 @@ mod tests {
                             vec![ModelToolCall {
                                 call_id: ToolCallId(format!("search-{index}")),
                                 index: 0,
-                                name: ToolName::SearchText,
+                                name: ToolId::from(ToolName::SearchText),
                                 raw_arguments: r#"{"query":"needle"}"#.to_string(),
                             }],
                             ToolMask::review_read_only(),
+                            &[],
                             tokio_util::sync::CancellationToken::new(),
                         )
                         .await
@@ -214,6 +222,106 @@ mod tests {
         });
         let counters = engine.snapshot_counters();
         assert_eq!(counters.search_scans, 1);
+    }
+
+    #[test]
+    fn concurrent_registry_executes_allowed_custom_tool() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("README.md"), "hello\n").unwrap();
+        let change = test_change_with_file("README.md");
+        let policy = PathPolicyV1::bench(64, 10);
+        let (snapshot, _) = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
+        let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 10));
+        let tool_id = ToolId::parse("host_custom_check").unwrap();
+        let mut registry = ToolRegistry::review_defaults().unwrap();
+        registry
+            .register_custom(
+                tool_id.clone(),
+                "Host engine supplied custom reviewer check.",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "value": { "type": "string" }
+                    },
+                    "required": ["value"],
+                    "additionalProperties": false
+                }),
+                false,
+                Arc::new(EchoCustomTool),
+            )
+            .unwrap();
+        let engine = ToolEngine::with_registry(snapshot, limits, Arc::new(registry)).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let denied = runtime.block_on(engine.execute_batch(
+            SessionId("session".to_string()),
+            TurnId(0),
+            vec![ModelToolCall {
+                call_id: ToolCallId("denied-custom".to_string()),
+                index: 0,
+                name: tool_id.clone(),
+                raw_arguments: r#"{"value":"ok"}"#.to_string(),
+            }],
+            ToolMask::review_read_only(),
+            &[],
+            tokio_util::sync::CancellationToken::new(),
+        ));
+        assert_eq!(denied.len(), 1);
+        assert!(!denied[0].ok);
+        assert_eq!(
+            denied[0].error.as_ref().unwrap().code,
+            ToolErrorCode::ToolNotAllowed
+        );
+
+        let results = runtime.block_on(engine.execute_batch(
+            SessionId("session".to_string()),
+            TurnId(0),
+            vec![ModelToolCall {
+                call_id: ToolCallId("custom".to_string()),
+                index: 0,
+                name: tool_id.clone(),
+                raw_arguments: r#"{"value":"ok"}"#.to_string(),
+            }],
+            ToolMask::review_read_only(),
+            std::slice::from_ref(&tool_id),
+            tokio_util::sync::CancellationToken::new(),
+        ));
+        assert_eq!(results.len(), 1);
+        assert!(results[0].ok);
+        assert_eq!(results[0].tool_name, tool_id);
+        assert!(results[0].artifact_id.is_some());
+        let data = results[0].data.as_ref().unwrap().to_string();
+        assert!(data.contains("[REDACTED]"));
+        assert!(!data.contains("AKIA1234567890ABCDEF"));
+    }
+
+    #[derive(Debug)]
+    struct EchoCustomTool;
+
+    #[async_trait]
+    impl CustomToolHandler for EchoCustomTool {
+        async fn execute(
+            &self,
+            context: CustomToolContext,
+            args: serde_json::Value,
+            _cancel: tokio_util::sync::CancellationToken,
+        ) -> crate::concurrent::contracts::RuntimeResult<CustomToolOutput> {
+            Ok(CustomToolOutput {
+                data: Some(serde_json::json!({
+                    "tool": context.tool_id.as_str(),
+                    "session": context.session_id.0,
+                    "value": args["value"],
+                    "secret": "AKIA1234567890ABCDEF"
+                })),
+                artifact: Some(CustomToolArtifact {
+                    key: ArtifactKey("host_custom_check".to_string()),
+                    content: "artifact AKIA1234567890ABCDEF".to_string(),
+                }),
+                limits: LimitInfo::default(),
+            })
+        }
     }
 
     fn test_repo(path: &Path) -> RepoContext {
