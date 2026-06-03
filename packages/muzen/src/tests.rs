@@ -30,7 +30,7 @@ use crate::util::DEFAULT_MODEL;
 use async_trait::async_trait;
 
 #[cfg(test)]
-mod tests {
+mod suite {
     use super::*;
     use clap::Parser;
 
@@ -604,7 +604,7 @@ mod tests {
             .build()
             .unwrap();
 
-        for (index, tool) in all_builtin_tools().into_iter().enumerate() {
+        for (index, tool) in all_builtin_tools().enumerate() {
             let results = runtime.block_on(engine.execute_batch(
                 test_scope("session"),
                 TurnId(index as u32),
@@ -1170,22 +1170,8 @@ mod tests {
         scope
     }
 
-    fn all_builtin_tools() -> [ToolName; 13] {
-        [
-            ToolName::ListChangedFiles,
-            ToolName::ReadDiff,
-            ToolName::ListFiles,
-            ToolName::ReadFile,
-            ToolName::ReadBaseFile,
-            ToolName::ReadHeadFile,
-            ToolName::SearchText,
-            ToolName::FindRelatedFiles,
-            ToolName::FindTestsForFile,
-            ToolName::ListImports,
-            ToolName::RecordFinding,
-            ToolName::ChallengeFinding,
-            ToolName::Finish,
-        ]
+    fn all_builtin_tools() -> impl Iterator<Item = ToolName> {
+        ToolName::review_read_only_tools().iter().copied()
     }
 
     fn builtin_args(tool: ToolName) -> String {

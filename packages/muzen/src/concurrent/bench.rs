@@ -17,7 +17,7 @@ use crate::concurrent::repo::RepoSnapshot;
 use crate::concurrent::runtime::{ConcurrentJobRuntime, ConcurrentSessionSpec};
 use crate::concurrent::tools::{ToolEngine, ToolRegistry};
 use crate::contracts::*;
-use crate::events::EventEmitter;
+use crate::events::{EventEmitter, EventRecord};
 use crate::job::{effective_personas, tool_allowed, validate_job};
 use crate::util::{timestamp_utc, SCHEMA_VERSION};
 
@@ -299,19 +299,15 @@ pub(crate) fn run_job_concurrent_with_result(
         })
         .collect::<Vec<_>>();
     if let Some(emitter) = &emitter {
-        emitter.emit(
+        emitter.emit(EventRecord::new(
             EventLevel::Info,
             EventType::RunStarted,
-            None,
-            None,
-            None,
-            None,
             serde_json::json!({
-                "projectId": job.project_id,
-                "sessions": session_specs.len(),
-                "runtime": "concurrent"
+            "projectId": job.project_id,
+            "sessions": session_specs.len(),
+            "runtime": "concurrent"
             }),
-        );
+        ));
     }
     let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(num_cpus::get().clamp(2, 8))
@@ -350,15 +346,11 @@ pub(crate) fn run_job_concurrent_with_result(
         elapsed_ms: report.elapsed_ms,
     };
     if let Some(emitter) = &emitter {
-        emitter.emit(
+        emitter.emit(EventRecord::new(
             EventLevel::Info,
             EventType::RunFinished,
-            None,
-            None,
-            None,
-            None,
             serde_json::json!(result),
-        );
+        ));
     }
     Ok(ConcurrentJobOutput { report, result })
 }
@@ -380,21 +372,7 @@ pub(crate) fn capabilities_from_mask(mask: ToolMask) -> CapabilitySet {
         fs_scope: FsScope::repo_root(),
         tool_grants: Default::default(),
     };
-    for tool in [
-        ToolName::ListChangedFiles,
-        ToolName::ReadDiff,
-        ToolName::ListFiles,
-        ToolName::ReadFile,
-        ToolName::ReadBaseFile,
-        ToolName::ReadHeadFile,
-        ToolName::SearchText,
-        ToolName::FindRelatedFiles,
-        ToolName::FindTestsForFile,
-        ToolName::ListImports,
-        ToolName::RecordFinding,
-        ToolName::ChallengeFinding,
-        ToolName::Finish,
-    ] {
+    for &tool in ToolName::review_read_only_tools() {
         if tool_allowed(mask, tool) {
             capabilities.grant(ToolId::from(tool), ToolGrant::allow_review_read_only());
         }
@@ -589,13 +567,12 @@ fn run_serial_baseline(
                 saw_file: true,
                 saw_search: true,
                 model_calls: 2,
-                tool_counts: {
-                    let mut counts = ToolCounts::default();
-                    counts.read_diff = 1;
-                    counts.read_file = 1;
-                    counts.search_text = 1;
-                    counts.record_finding = 1;
-                    counts
+                tool_counts: ToolCounts {
+                    read_diff: 1,
+                    read_file: 1,
+                    search_text: 1,
+                    record_finding: 1,
+                    ..Default::default()
                 },
             })
             .collect(),

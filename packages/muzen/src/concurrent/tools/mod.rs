@@ -1,3 +1,4 @@
+mod catalog;
 mod engine;
 mod metrics;
 mod read;

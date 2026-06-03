@@ -10,7 +10,7 @@ use crate::concurrent::model::{ConcurrentModelClient, ConcurrentModelRouter};
 use crate::concurrent::repo::RepoSnapshot;
 use crate::concurrent::tools::{count_tool_result, ToolEngine};
 use crate::contracts::{EventLevel, EventType, TokenUsage, ToolCounts, ToolName};
-use crate::events::EventEmitter;
+use crate::events::{EventEmitter, EventRecord};
 use crate::util::redact_known_secrets;
 use serde_json::{json, Value};
 
@@ -150,23 +150,21 @@ impl ConcurrentJobRuntime {
     ) -> SessionReport {
         let scope = session.scope;
         self.emit(
-            EventLevel::Info,
-            EventType::SessionStarted,
-            Some(scope.id.0.clone()),
-            None,
-            None,
-            None,
-            json!({"role": scope.role, "objective": scope.objective}),
+            EventRecord::new(
+                EventLevel::Info,
+                EventType::SessionStarted,
+                json!({"role": scope.role, "objective": scope.objective}),
+            )
+            .session_id(scope.id.0.clone()),
         );
         if cancel.is_cancelled() {
             self.emit(
-                EventLevel::Info,
-                EventType::SessionFinished,
-                Some(scope.id.0.clone()),
-                None,
-                None,
-                None,
-                json!({"state": "cancelled", "toolCounts": ToolCounts::default(), "modelCalls": 0}),
+                EventRecord::new(
+                    EventLevel::Info,
+                    EventType::SessionFinished,
+                    json!({"state": "cancelled", "toolCounts": ToolCounts::default(), "modelCalls": 0}),
+                )
+                .session_id(scope.id.0.clone()),
             );
             return SessionReport {
                 completed: false,
@@ -190,22 +188,20 @@ impl ConcurrentJobRuntime {
             Ok(model) => model,
             Err(error) => {
                 self.emit(
-                    EventLevel::Error,
-                    EventType::Error,
-                    Some(scope.id.0.clone()),
-                    None,
-                    None,
-                    None,
-                    json!({"error": redact_known_secrets(&format!("{error:#}"), &[])}),
+                    EventRecord::new(
+                        EventLevel::Error,
+                        EventType::Error,
+                        json!({"error": redact_known_secrets(&format!("{error:#}"), &[])}),
+                    )
+                    .session_id(scope.id.0.clone()),
                 );
                 self.emit(
-                    EventLevel::Info,
-                    EventType::SessionFinished,
-                    Some(scope.id.0.clone()),
-                    None,
-                    None,
-                    None,
-                    json!({"state": "failed", "toolCounts": ToolCounts::default(), "modelCalls": 0}),
+                    EventRecord::new(
+                        EventLevel::Info,
+                        EventType::SessionFinished,
+                        json!({"state": "failed", "toolCounts": ToolCounts::default(), "modelCalls": 0}),
+                    )
+                    .session_id(scope.id.0.clone()),
                 );
                 return SessionReport {
                     completed: false,
@@ -292,13 +288,12 @@ impl ConcurrentJobRuntime {
                 ModelTurn::Text { content, usage } => {
                     tokens.add(usage);
                     self.emit(
-                        EventLevel::Debug,
-                        EventType::ModelCallCompleted,
-                        Some(scope.id.0.clone()),
-                        None,
-                        None,
-                        None,
-                        json!({"turn": turn_index, "tokens": usage}),
+                        EventRecord::new(
+                            EventLevel::Debug,
+                            EventType::ModelCallCompleted,
+                            json!({"turn": turn_index, "tokens": usage}),
+                        )
+                        .session_id(scope.id.0.clone()),
                     );
                     transcript.push(ConversationItem::AssistantText { content });
                     completed = true;
@@ -307,13 +302,12 @@ impl ConcurrentJobRuntime {
                 ModelTurn::ToolCalls { calls, usage } => {
                     tokens.add(usage);
                     self.emit(
-                        EventLevel::Debug,
-                        EventType::ModelCallCompleted,
-                        Some(scope.id.0.clone()),
-                        None,
-                        None,
-                        None,
-                        json!({"turn": turn_index, "tokens": usage}),
+                        EventRecord::new(
+                            EventLevel::Debug,
+                            EventType::ModelCallCompleted,
+                            json!({"turn": turn_index, "tokens": usage}),
+                        )
+                        .session_id(scope.id.0.clone()),
                     );
                     if calls.is_empty() {
                         completed = true;
@@ -321,13 +315,13 @@ impl ConcurrentJobRuntime {
                     }
                     for call in &calls {
                         self.emit(
-                            EventLevel::Info,
-                            EventType::ToolCallRequested,
-                            Some(scope.id.0.clone()),
-                            Some(call.call_id.0.clone()),
-                            None,
-                            None,
-                            json!({"toolName": call.name.as_str()}),
+                            EventRecord::new(
+                                EventLevel::Info,
+                                EventType::ToolCallRequested,
+                                json!({"toolName": call.name.as_str()}),
+                            )
+                            .session_id(scope.id.0.clone())
+                            .tool_call_id(call.call_id.0.clone()),
                         );
                     }
                     transcript.push(ConversationItem::AssistantToolCalls {
@@ -406,63 +400,65 @@ impl ConcurrentJobRuntime {
                             );
                             if let Some(finding_id) = finding_id {
                                 self.emit(
-                                    EventLevel::Info,
-                                    EventType::FindingValidated,
-                                    Some(scope.id.0.clone()),
-                                    Some(result.tool_call_id.0.clone()),
-                                    None,
-                                    Some(finding_id),
-                                    json!({"validationStatus": "validated"}),
+                                    EventRecord::new(
+                                        EventLevel::Info,
+                                        EventType::FindingValidated,
+                                        json!({"validationStatus": "validated"}),
+                                    )
+                                    .session_id(scope.id.0.clone())
+                                    .tool_call_id(result.tool_call_id.0.clone())
+                                    .finding_id(finding_id),
                                 );
                             }
                         } else if let Some(artifact_id) = &result.artifact_id {
                             self.emit(
-                                EventLevel::Info,
-                                EventType::ArtifactRecorded,
-                                Some(scope.id.0.clone()),
-                                Some(result.tool_call_id.0.clone()),
-                                Some(artifact_id.0.clone()),
-                                None,
-                                json!({
+                                EventRecord::new(
+                                    EventLevel::Info,
+                                    EventType::ArtifactRecorded,
+                                    json!({
                                     "toolName": result.tool_name.as_str(),
                                     "status": tool_status(&result),
                                     "summary": artifact_event_summary(&result),
-                                }),
+                                    }),
+                                )
+                                .session_id(scope.id.0.clone())
+                                .tool_call_id(result.tool_call_id.0.clone())
+                                .artifact_id(artifact_id.0.clone()),
                             );
                             self.emit(
-                                if result.ok {
-                                    EventLevel::Info
-                                } else {
-                                    EventLevel::Warn
-                                },
-                                EventType::ToolCallCompleted,
-                                Some(scope.id.0.clone()),
-                                Some(result.tool_call_id.0.clone()),
-                                None,
-                                None,
-                                json!({
+                                EventRecord::new(
+                                    if result.ok {
+                                        EventLevel::Info
+                                    } else {
+                                        EventLevel::Warn
+                                    },
+                                    EventType::ToolCallCompleted,
+                                    json!({
                                     "toolName": result.tool_name.as_str(),
                                     "status": tool_status(&result),
                                     "errorCode": result.error.as_ref().map(|error| error.code),
-                                }),
+                                    }),
+                                )
+                                .session_id(scope.id.0.clone())
+                                .tool_call_id(result.tool_call_id.0.clone()),
                             );
                         } else {
                             self.emit(
-                                if result.ok {
-                                    EventLevel::Info
-                                } else {
-                                    EventLevel::Warn
-                                },
-                                EventType::ToolCallCompleted,
-                                Some(scope.id.0.clone()),
-                                Some(result.tool_call_id.0.clone()),
-                                None,
-                                None,
-                                json!({
+                                EventRecord::new(
+                                    if result.ok {
+                                        EventLevel::Info
+                                    } else {
+                                        EventLevel::Warn
+                                    },
+                                    EventType::ToolCallCompleted,
+                                    json!({
                                     "toolName": result.tool_name.as_str(),
                                     "status": tool_status(&result),
                                     "errorCode": result.error.as_ref().map(|error| error.code),
-                                }),
+                                    }),
+                                )
+                                .session_id(scope.id.0.clone())
+                                .tool_call_id(result.tool_call_id.0.clone()),
                             );
                         }
                         count_tool_result(&mut tool_counts, &result);
@@ -485,13 +481,12 @@ impl ConcurrentJobRuntime {
         }
 
         self.emit(
-            EventLevel::Info,
-            EventType::SessionFinished,
-            Some(scope.id.0.clone()),
-            None,
-            None,
-            None,
-            json!({"state": session_state(completed, terminal_seen, cancelled, failed), "toolCounts": tool_counts, "modelCalls": model_calls}),
+            EventRecord::new(
+                EventLevel::Info,
+                EventType::SessionFinished,
+                json!({"state": session_state(completed, terminal_seen, cancelled, failed), "toolCounts": tool_counts, "modelCalls": model_calls}),
+            )
+            .session_id(scope.id.0.clone()),
         );
         SessionReport {
             completed,
@@ -526,13 +521,12 @@ impl ConcurrentJobRuntime {
         loop {
             attempts += 1;
             self.emit(
-                EventLevel::Debug,
-                EventType::ModelCallStarted,
-                Some(scope.id.0.clone()),
-                None,
-                None,
-                None,
-                json!({"turn": turn_index, "attempt": attempts}),
+                EventRecord::new(
+                    EventLevel::Debug,
+                    EventType::ModelCallStarted,
+                    json!({"turn": turn_index, "attempt": attempts}),
+                )
+                .session_id(scope.id.0.clone()),
             );
             match model
                 .complete(scope, transcript, turn_id, cancel.child_token())
@@ -545,35 +539,33 @@ impl ConcurrentJobRuntime {
                         && !cancel.is_cancelled() =>
                 {
                     self.emit(
-                        EventLevel::Warn,
-                        EventType::Error,
-                        Some(scope.id.0.clone()),
-                        None,
-                        None,
-                        None,
-                        json!({
+                        EventRecord::new(
+                            EventLevel::Warn,
+                            EventType::Error,
+                            json!({
                             "turn": turn_index,
                             "attempt": attempts,
                             "retrying": true,
                             "error": redact_known_secrets(&format!("{error:#}"), &[])
-                        }),
+                            }),
+                        )
+                        .session_id(scope.id.0.clone()),
                     );
                     tokio::time::sleep(retry_delay(attempts)).await;
                 }
                 Err(error) => {
                     self.emit(
-                        EventLevel::Error,
-                        EventType::Error,
-                        Some(scope.id.0.clone()),
-                        None,
-                        None,
-                        None,
-                        json!({
+                        EventRecord::new(
+                            EventLevel::Error,
+                            EventType::Error,
+                            json!({
                             "turn": turn_index,
                             "attempt": attempts,
                             "retrying": false,
                             "error": redact_known_secrets(&format!("{error:#}"), &[])
-                        }),
+                            }),
+                        )
+                        .session_id(scope.id.0.clone()),
                     );
                     return Err((error, attempts));
                 }
@@ -687,26 +679,9 @@ impl ConcurrentJobRuntime {
         (allowed, denied)
     }
 
-    fn emit(
-        &self,
-        level: EventLevel,
-        event_type: EventType,
-        session_id: Option<String>,
-        tool_call_id: Option<String>,
-        artifact_id: Option<String>,
-        finding_id: Option<String>,
-        payload: Value,
-    ) {
+    fn emit(&self, event: EventRecord) {
         if let Some(emitter) = &self.emitter {
-            emitter.emit(
-                level,
-                event_type,
-                session_id,
-                tool_call_id,
-                artifact_id,
-                finding_id,
-                payload,
-            );
+            emitter.emit(event);
         }
     }
 }
@@ -729,9 +704,7 @@ fn session_state(
         "cancelled"
     } else if completed {
         "done"
-    } else if failed {
-        "failed"
-    } else if terminal_seen {
+    } else if failed || terminal_seen {
         "failed"
     } else {
         "budget_exhausted"

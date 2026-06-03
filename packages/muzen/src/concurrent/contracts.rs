@@ -306,21 +306,7 @@ impl CapabilitySet {
             fs_scope: FsScope::repo_root(),
             tool_grants: BTreeMap::new(),
         };
-        for tool in [
-            ToolName::ListChangedFiles,
-            ToolName::ReadDiff,
-            ToolName::ListFiles,
-            ToolName::ReadFile,
-            ToolName::ReadBaseFile,
-            ToolName::ReadHeadFile,
-            ToolName::SearchText,
-            ToolName::FindRelatedFiles,
-            ToolName::FindTestsForFile,
-            ToolName::ListImports,
-            ToolName::RecordFinding,
-            ToolName::ChallengeFinding,
-            ToolName::Finish,
-        ] {
+        for &tool in ToolName::review_read_only_tools() {
             capabilities.grant(ToolId::from(tool), ToolGrant::allow_review_read_only());
         }
         capabilities

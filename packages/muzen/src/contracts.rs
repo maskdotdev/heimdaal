@@ -586,6 +586,26 @@ pub enum ToolName {
 }
 
 impl ToolName {
+    pub const REVIEW_READ_ONLY: [Self; 13] = [
+        Self::ListChangedFiles,
+        Self::ReadDiff,
+        Self::ListFiles,
+        Self::ReadFile,
+        Self::ReadBaseFile,
+        Self::ReadHeadFile,
+        Self::SearchText,
+        Self::FindRelatedFiles,
+        Self::FindTestsForFile,
+        Self::ListImports,
+        Self::RecordFinding,
+        Self::ChallengeFinding,
+        Self::Finish,
+    ];
+
+    pub fn review_read_only_tools() -> &'static [Self] {
+        &Self::REVIEW_READ_ONLY
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::ListChangedFiles => "list_changed_files",
