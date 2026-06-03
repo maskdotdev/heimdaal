@@ -1,0 +1,54 @@
+{
+  "sourceKind": "canary",
+  "minRuns": 1,
+  "minSessions": 50,
+  "requirePublishable": true,
+  "requireNoErrors": true,
+  "totals": {
+    "runs": 1,
+    "sessions": 50,
+    "completedSessions": 50,
+    "defaultConcurrentRuns": 1,
+    "fallbackRuns": 0
+  },
+  "releaseWindowAuditReady": true,
+  "deletionReady": true,
+  "deletionBlocker": null,
+  "rows": [
+    {
+      "label": "bench/results-real-release-window-canary-50-default-runtime/canary_run_001_job_50.json",
+      "exit": 0,
+      "durationS": 32.622,
+      "peakRssMb": 27.19,
+      "commandRuntimeFlagPresent": false,
+      "commandRuntime": null,
+      "runStarted": true,
+      "runFinished": true,
+      "runtime": "concurrent",
+      "runtimeRole": "candidate",
+      "syncFallbackUsed": false,
+      "sessions": 50,
+      "completedSessions": 50,
+      "outcome": "completed_with_findings",
+      "publishability": "publishable",
+      "findings": 40,
+      "publishableFindings": 40,
+      "modelCalls": 200,
+      "toolCalls": 200,
+      "totalTokens": 275804,
+      "eventCounts": {
+        "run_started": 1,
+        "session_started": 50,
+        "model_call_started": 200,
+        "model_call_completed": 200,
+        "tool_call_requested": 200,
+        "artifact_recorded": 150,
+        "tool_call_completed": 160,
+        "finding_validated": 40,
+        "session_finished": 50,
+        "run_finished": 1
+      }
+    }
+  ],
+  "failures": []
+}
