@@ -19,7 +19,7 @@ use crate::concurrent::tools::{ToolEngine, ToolRegistry};
 use crate::contracts::*;
 use crate::events::{EventEmitter, EventRecord};
 use crate::job::{effective_personas, tool_allowed, validate_job};
-use crate::util::{timestamp_utc, SCHEMA_VERSION};
+use crate::util::SCHEMA_VERSION;
 
 #[derive(Parser, Debug, Clone)]
 pub(crate) struct ConcurrentBenchArgs {
@@ -143,7 +143,7 @@ pub(crate) fn run_real_bench(args: ConcurrentRealBenchArgs) -> Result<Concurrent
     limits.max_tool_calls_per_turn = args.max_tool_calls.max(1);
     let limits = Arc::new(limits);
 
-    let (snapshot, _snapshot_report) =
+    let snapshot =
         RepoSnapshot::build(&root, &policy, &change).map_err(|error| anyhow::anyhow!("{error}"))?;
     let registry = Arc::new(
         ToolRegistry::review_defaults()
@@ -227,19 +227,13 @@ pub(crate) fn run_real_bench(args: ConcurrentRealBenchArgs) -> Result<Concurrent
 }
 
 pub(crate) fn run_job_concurrent(job: ReviewRunJobV1) -> Result<ConcurrentRunReport> {
-    Ok(run_job_concurrent_with_result(job, None)?.report)
+    run_job_concurrent_with_events(job, None)
 }
 
-#[derive(Debug)]
-pub(crate) struct ConcurrentJobOutput {
-    pub(crate) report: ConcurrentRunReport,
-    pub(crate) result: ReviewRunResultV1,
-}
-
-pub(crate) fn run_job_concurrent_with_result(
+pub(crate) fn run_job_concurrent_with_events(
     job: ReviewRunJobV1,
     emitter: Option<Arc<EventEmitter>>,
-) -> Result<ConcurrentJobOutput> {
+) -> Result<ConcurrentRunReport> {
     validate_job(&job)?;
     let registry = Arc::new(
         ToolRegistry::review_defaults()
@@ -253,9 +247,8 @@ pub(crate) fn run_job_concurrent_with_result(
     limits.max_tool_calls_per_turn = 4;
     limits.max_model_concurrency_global = job.budgets.max_active_sessions.max(1);
     let limits = Arc::new(limits);
-    let (snapshot, _snapshot_report) =
-        RepoSnapshot::build(&job.repo.worktree_root, &job.path_policy, &job.change)
-            .map_err(|error| anyhow::anyhow!("{error}"))?;
+    let snapshot = RepoSnapshot::build(&job.repo.worktree_root, &job.path_policy, &job.change)
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
     let tools = Arc::new(
         ToolEngine::with_registry(
             Arc::clone(&snapshot),
@@ -352,7 +345,7 @@ pub(crate) fn run_job_concurrent_with_result(
             serde_json::json!(result),
         ));
     }
-    Ok(ConcurrentJobOutput { report, result })
+    Ok(report)
 }
 
 fn concurrent_review_outcome(report: &ConcurrentRunReport, findings: usize) -> ReviewOutcomeV1 {
@@ -393,7 +386,7 @@ fn run_concurrent(
         policy.max_file_bytes,
         policy.max_search_results,
     ));
-    let (snapshot, _snapshot_report) =
+    let snapshot =
         RepoSnapshot::build(root, &policy, &change).map_err(|error| anyhow::anyhow!("{error}"))?;
     let tools = Arc::new(
         ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits))
@@ -447,7 +440,7 @@ fn run_serial_baseline(
     sessions: usize,
 ) -> Result<ConcurrentRunReport> {
     let started = Instant::now();
-    let (snapshot, _snapshot_report) =
+    let snapshot =
         RepoSnapshot::build(root, &policy, &change).map_err(|error| anyhow::anyhow!("{error}"))?;
     let limits = Arc::new(RuntimeLimits::standard(
         1,

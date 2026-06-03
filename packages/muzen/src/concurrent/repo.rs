@@ -1,9 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
-use std::time::Instant;
 
 use cap_std::ambient_authority;
 use ignore::WalkBuilder;
@@ -15,7 +14,6 @@ use crate::repo::is_textish;
 #[derive(Debug)]
 pub(crate) struct RepoSnapshot {
     pub(crate) snapshot_id: SnapshotId,
-    pub(crate) root_path: PathBuf,
     pub(crate) root: cap_std::fs::Dir,
     pub(crate) manifest: Arc<FileManifest>,
     pub(crate) diff: Arc<DiffArtifact>,
@@ -27,8 +25,6 @@ pub(crate) struct FileManifest {
     pub(crate) files: Vec<FileMeta>,
     pub(crate) changed_files: Vec<FileId>,
     pub(crate) changed_file_entries: Vec<ChangedFileMeta>,
-    pub(crate) skipped: usize,
-    pub(crate) bytes: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -53,21 +49,12 @@ pub(crate) struct DiffArtifact {
     pub(crate) content_hash: String,
 }
 
-#[derive(Debug)]
-pub(crate) struct SnapshotBuildReport {
-    pub(crate) files: usize,
-    pub(crate) skipped: usize,
-    pub(crate) bytes: u64,
-    pub(crate) elapsed_ms: u64,
-}
-
 impl RepoSnapshot {
     pub(crate) fn build(
         root: &Path,
         policy: &PathPolicyV1,
         change: &ChangeScopeV1,
-    ) -> RuntimeResult<(Arc<Self>, SnapshotBuildReport)> {
-        let started = Instant::now();
+    ) -> RuntimeResult<Arc<Self>> {
         let root_path = fs::canonicalize(root).map_err(|error| {
             RuntimeError::RepoUnavailable(format!(
                 "failed to canonicalize repo root {}: {error}",
@@ -92,8 +79,6 @@ impl RepoSnapshot {
         let mut by_path = HashMap::new();
         let mut changed_files = Vec::new();
         let changed_file_entries = changed_file_entries(change);
-        let mut skipped = 0usize;
-        let mut bytes = 0u64;
 
         let mut walker = WalkBuilder::new(&root_path);
         walker
@@ -106,62 +91,38 @@ impl RepoSnapshot {
         for entry in walker.build() {
             let entry = match entry {
                 Ok(entry) => entry,
-                Err(_) => {
-                    skipped += 1;
-                    continue;
-                }
+                Err(_) => continue,
             };
             let file_type = match entry.file_type() {
                 Some(file_type) => file_type,
-                None => {
-                    skipped += 1;
-                    continue;
-                }
+                None => continue,
             };
             if !file_type.is_file() {
-                if file_type.is_symlink() {
-                    skipped += 1;
-                }
                 continue;
             }
             let rel = match entry.path().strip_prefix(&root_path) {
                 Ok(rel) => rel,
-                Err(_) => {
-                    skipped += 1;
-                    continue;
-                }
+                Err(_) => continue,
             };
             let rel_text = match rel.to_str() {
                 Some(value) => value,
-                None => {
-                    skipped += 1;
-                    continue;
-                }
+                None => continue,
             };
             let repo_path = match RepoPath::parse(rel_text) {
                 Ok(path) => path,
-                Err(_) => {
-                    skipped += 1;
-                    continue;
-                }
+                Err(_) => continue,
             };
             if is_denied(policy, repo_path.as_path()) || !is_allowed(policy, repo_path.as_path()) {
-                skipped += 1;
                 continue;
             }
             let meta = match entry.metadata() {
                 Ok(meta) => meta,
-                Err(_) => {
-                    skipped += 1;
-                    continue;
-                }
+                Err(_) => continue,
             };
             if !meta.is_file() {
-                skipped += 1;
                 continue;
             }
             if files.len() >= policy.max_directory_entries {
-                skipped += 1;
                 break;
             }
             let size = meta.len();
@@ -182,7 +143,6 @@ impl RepoSnapshot {
             if is_changed {
                 changed_files.push(file_id);
             }
-            bytes = bytes.saturating_add(size);
             by_path.insert(repo_path.clone(), file_id);
             files.push(FileMeta {
                 file_id,
@@ -230,25 +190,13 @@ impl RepoSnapshot {
             files,
             changed_files,
             changed_file_entries,
-            skipped,
-            bytes,
         });
-        let report = SnapshotBuildReport {
-            files: manifest.files.len(),
-            skipped,
-            bytes,
-            elapsed_ms: started.elapsed().as_millis() as u64,
-        };
-        Ok((
-            Arc::new(Self {
-                snapshot_id,
-                root_path,
-                root: root_dir,
-                manifest,
-                diff,
-            }),
-            report,
-        ))
+        Ok(Arc::new(Self {
+            snapshot_id,
+            root: root_dir,
+            manifest,
+            diff,
+        }))
     }
 
     pub(crate) fn lookup(&self, path: &RepoPath) -> RuntimeResult<&FileMeta> {
@@ -265,15 +213,6 @@ impl RepoSnapshot {
             .files
             .get(file_id.0 as usize)
             .ok_or(RuntimeError::Invariant("file_id not present in manifest"))
-    }
-
-    pub(crate) fn list_files(&self) -> Vec<String> {
-        self.manifest
-            .files
-            .iter()
-            .filter(|file| file.is_text_candidate)
-            .map(|file| file.rel_path.display())
-            .collect()
     }
 
     pub(crate) fn read_bounded(

@@ -28,7 +28,7 @@ async function checkConcurrentDefault() {
   const cli = await readRepoFile("packages/muzen/src/cli.rs");
   const passed =
     !/RuntimeSelection/.test(cli) &&
-    /run_job_concurrent_with_result\(job, Some\(emitter\)\)/.test(cli) &&
+    /run_job_concurrent_with_events\(job, Some\(emitter\)\)/.test(cli) &&
     /run_job_concurrent\(job\)/.test(cli);
   recordCheck("concurrent-default-runtime", passed, {
     detail: "muzen run and muzen bench have no runtime selector and dispatch to concurrent",

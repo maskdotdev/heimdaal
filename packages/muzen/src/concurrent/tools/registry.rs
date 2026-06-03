@@ -10,7 +10,6 @@ use crate::concurrent::contracts::{
     ArtifactKey, LimitInfo, RuntimeError, RuntimeResult, SessionId, SnapshotId, ToolCallId, ToolId,
     TurnId,
 };
-use crate::concurrent::repo::RepoSnapshot;
 use crate::contracts::ToolName;
 
 use super::catalog::{review_builtin_specs, BuiltinToolSpec};
@@ -144,7 +143,6 @@ pub struct CustomToolContext {
     pub call_id: ToolCallId,
     pub tool_id: ToolId,
     pub snapshot_id: SnapshotId,
-    pub(crate) snapshot: Arc<RepoSnapshot>,
 }
 
 #[derive(Debug, Clone, Default)]

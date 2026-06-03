@@ -130,24 +130,7 @@ pub(crate) fn synthetic_changed_files(
     root: &Path,
     policy: &PathPolicyV1,
 ) -> Result<Vec<ChangedFileEntryV1>> {
-    let repo = RepoContext::new(
-        root.to_path_buf(),
-        policy.clone(),
-        ChangeScopeV1 {
-            kind: ChangeKind::LocalDiff,
-            change_id: "synthetic".to_string(),
-            source_ref: "review".to_string(),
-            target_ref: "base".to_string(),
-            base_revision_id: "base".to_string(),
-            head_revision_id: "head".to_string(),
-            merge_base_revision_id: None,
-            changed_files_manifest_ref: None,
-            diff_manifest_ref: None,
-            snapshot_mode: SnapshotMode::WorktreeHead,
-            rename_detection: RenameDetection::None,
-            changed_files: Vec::new(),
-        },
-    )?;
+    let repo = RepoContext::new(root.to_path_buf(), policy.clone())?;
     let mut files = repo.walk_files()?;
     files.sort_by_key(|path| preferred_bench_file_score(path));
     Ok(files

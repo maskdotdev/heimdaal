@@ -334,8 +334,10 @@ pub(crate) enum EventLevel {
     Error,
 }
 
+// V1 wire contracts intentionally reserve states the concurrent MVP does not emit yet.
 #[derive(Debug, Copy, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub(crate) enum EventType {
     RunStarted,
     SessionStarted,
@@ -365,6 +367,7 @@ pub(crate) struct RedactionMetadataV1 {
 
 #[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub(crate) enum RedactionState {
     None,
     Partial,
@@ -405,6 +408,7 @@ pub(crate) enum ReviewRuntimeV1 {
 
 #[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub(crate) enum ReviewOutcomeV1 {
     CompletedNoFindings,
     CompletedWithFindings,
@@ -415,6 +419,7 @@ pub(crate) enum ReviewOutcomeV1 {
 
 #[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub(crate) enum Publishability {
     Publishable,
     DiagnosticOnly,
@@ -423,15 +428,7 @@ pub(crate) enum Publishability {
 
 #[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum Completeness {
-    Complete,
-    Partial,
-    Truncated,
-    MetadataOnly,
-}
-
-#[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub(crate) enum ArtifactKind {
     FileSlice,
     DiffHunk,
@@ -470,6 +467,7 @@ pub(crate) struct EvidenceRefV1 {
 
 #[derive(Debug, Copy, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub(crate) enum EvidenceRevision {
     Base,
     Head,
@@ -479,6 +477,7 @@ pub(crate) enum EvidenceRevision {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "locationKind", rename_all = "snake_case")]
+#[allow(dead_code)]
 pub(crate) enum EvidenceLocationV1 {
     SinglePath { path: String },
     Rename { old_path: String, new_path: String },
@@ -512,6 +511,7 @@ pub(crate) struct DiffAnchorV1 {
 
 #[derive(Debug, Copy, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub(crate) enum DiffSide {
     Base,
     Head,
@@ -536,6 +536,7 @@ pub(crate) struct FindingV1 {
 
 #[derive(Debug, Copy, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub(crate) enum FindingSeverity {
     Blocker,
     High,
@@ -546,6 +547,7 @@ pub(crate) enum FindingSeverity {
 
 #[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub(crate) enum ValidationStatus {
     Candidate,
     Challenged,

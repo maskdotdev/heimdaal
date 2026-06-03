@@ -1133,7 +1133,6 @@ impl ToolEngine {
             call_id: invocation.call_id.clone(),
             tool_id: invocation.tool_id.clone(),
             snapshot_id: self.snapshot.snapshot_id.clone(),
-            snapshot: Arc::clone(&self.snapshot),
         };
         match handler.execute(context, args, cancel).await {
             Ok(output) => {

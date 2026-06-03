@@ -8,12 +8,12 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::bench::bench_job;
 use crate::concurrent::bench::{
-    run_compare, run_job_concurrent, run_job_concurrent_with_result, run_real_bench,
+    run_compare, run_job_concurrent, run_job_concurrent_with_events, run_real_bench,
     ConcurrentBenchArgs, ConcurrentRealBenchArgs,
 };
 use crate::contracts::*;
 use crate::events::EventEmitter;
-use crate::util::{redact_known_secrets, DEFAULT_MODEL, SCHEMA_VERSION};
+use crate::util::{redact_known_secrets, DEFAULT_MODEL};
 
 #[derive(Parser, Debug)]
 #[command(name = "muzen")]
@@ -100,14 +100,12 @@ pub(crate) fn run_json(args: RunArgs) -> Result<i32> {
         job.attempt,
         job.output_redaction.policy_id.clone(),
     ));
-    let output = run_job_concurrent_with_result(job, Some(emitter))?;
-    Ok(
-        if output.report.completed_sessions == output.report.sessions {
-            0
-        } else {
-            4
-        },
-    )
+    let report = run_job_concurrent_with_events(job, Some(emitter))?;
+    Ok(if report.completed_sessions == report.sessions {
+        0
+    } else {
+        4
+    })
 }
 
 pub fn main_entry() {

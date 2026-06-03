@@ -414,7 +414,6 @@ pub enum ModelTurn {
 pub(crate) struct ToolInvocation {
     pub(crate) session_id: SessionId,
     pub(crate) turn_id: TurnId,
-    pub(crate) original_index: usize,
     pub(crate) call_id: ToolCallId,
     pub(crate) tool_id: ToolId,
     pub(crate) builtin_name: Option<ToolName>,

@@ -75,7 +75,7 @@ mod suite {
         fs::create_dir(temp.path().join(".git")).unwrap();
         fs::write(temp.path().join(".git/config"), "secret").unwrap();
         let repo = test_repo(temp.path());
-        let denied = repo.read_text_file(Path::new(".git/config"), 1024);
+        let denied = repo.normalize_tool_path(Path::new(".git/config"));
         assert!(denied.is_err());
     }
 
@@ -93,8 +93,8 @@ mod suite {
         )
         .unwrap();
         let repo = test_repo(temp.path());
-        let denied = repo.read_text_file(Path::new("link.txt"), 1024);
-        assert!(denied.is_err());
+        let files = repo.walk_files().unwrap();
+        assert!(!files.iter().any(|path| path == Path::new("link.txt")));
     }
 
     #[test]
@@ -227,7 +227,7 @@ mod suite {
         fs::write(temp.path().join("README.md"), "needle\n").unwrap();
         let change = test_change_with_file("README.md");
         let policy = PathPolicyV1::bench(64, 10);
-        let (snapshot, _) = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
+        let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
         let limits = std::sync::Arc::new(RuntimeLimits::standard(1, 64 * 1024, 10));
         let engine = ToolEngine::new(snapshot, limits).unwrap();
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -269,7 +269,7 @@ mod suite {
         }
         let change = test_change_with_file("file-0.rs");
         let policy = PathPolicyV1::bench(64, 20);
-        let (snapshot, _) = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
+        let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
         let limits = std::sync::Arc::new(RuntimeLimits::standard(10, 64 * 1024, 20));
         let engine = std::sync::Arc::new(ToolEngine::new(snapshot, limits).unwrap());
         let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -314,7 +314,7 @@ mod suite {
         fs::write(temp.path().join("README.md"), "needle\n").unwrap();
         let change = test_change_with_file("README.md");
         let policy = PathPolicyV1::bench(64, 20);
-        let (snapshot, _) = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
+        let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
         let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));
         let engine = ToolEngine::new(snapshot, limits).unwrap();
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -359,7 +359,7 @@ mod suite {
         fs::write(temp.path().join("README.md"), "needle\n").unwrap();
         let change = test_change_with_file("README.md");
         let policy = PathPolicyV1::bench(64, 20);
-        let (snapshot, _) = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
+        let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
         let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));
         let engine = ToolEngine::new(snapshot, limits).unwrap();
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -411,7 +411,7 @@ mod suite {
         fs::write(temp.path().join("src/lib.rs"), "needle in src\n").unwrap();
         let change = test_change_with_file("src/lib.rs");
         let policy = PathPolicyV1::bench(64, 20);
-        let (snapshot, _) = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
+        let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
         let limits = Arc::new(RuntimeLimits::standard(2, 64 * 1024, 20));
         let engine = ToolEngine::new(snapshot, limits).unwrap();
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -470,7 +470,7 @@ mod suite {
         fs::write(temp.path().join("README.md"), "hello\n").unwrap();
         let change = test_change_with_file("README.md");
         let policy = PathPolicyV1::bench(64, 10);
-        let (snapshot, _) = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
+        let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
         let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 10));
         let tool_id = ToolId::parse("host_custom_check").unwrap();
         let mut registry = ToolRegistry::review_defaults().unwrap();
@@ -596,7 +596,7 @@ mod suite {
         .unwrap();
         let change = test_change_with_file("src/lib.rs");
         let policy = PathPolicyV1::bench(64, 20);
-        let (snapshot, _) = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
+        let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
         let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));
         let engine = ToolEngine::new(snapshot, limits).unwrap();
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -633,7 +633,7 @@ mod suite {
         fs::write(temp.path().join("README.md"), "needle\n").unwrap();
         let change = test_change_with_file("README.md");
         let policy = PathPolicyV1::bench(64, 20);
-        let (snapshot, _) = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
+        let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
         let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));
         let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
         let output = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -716,7 +716,7 @@ mod suite {
         fs::write(temp.path().join("README.md"), "needle\n").unwrap();
         let change = test_change_with_file("README.md");
         let policy = PathPolicyV1::bench(64, 20);
-        let (snapshot, _) = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
+        let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
         let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));
         let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
         let runtime = ConcurrentJobRuntime {
@@ -750,7 +750,7 @@ mod suite {
         fs::write(temp.path().join("README.md"), "needle\n").unwrap();
         let change = test_change_with_file("README.md");
         let policy = PathPolicyV1::bench(64, 20);
-        let (snapshot, _) = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
+        let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
         let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));
         let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
         let runtime = ConcurrentJobRuntime {
@@ -787,7 +787,7 @@ mod suite {
         fs::write(temp.path().join("README.md"), "needle\n").unwrap();
         let change = test_change_with_file("README.md");
         let policy = PathPolicyV1::bench(64, 20);
-        let (snapshot, _) = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
+        let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
         let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));
         let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
         let runtime = ConcurrentJobRuntime {
@@ -823,7 +823,7 @@ mod suite {
         fs::write(temp.path().join("README.md"), "needle\n").unwrap();
         let change = test_change_with_file("README.md");
         let policy = PathPolicyV1::bench(64, 20);
-        let (snapshot, _) = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
+        let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
         let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));
         let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
         let runtime = ConcurrentJobRuntime {
@@ -899,7 +899,7 @@ mod suite {
         fs::write(temp.path().join("README.md"), "needle\n").unwrap();
         let change = test_change_with_file("README.md");
         let policy = PathPolicyV1::bench(64, 20);
-        let (snapshot, _) = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
+        let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
         let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));
         let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
         let output = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -1143,7 +1143,7 @@ mod suite {
         fs::write(temp.path().join("README.md"), "needle\n").unwrap();
         let change = test_change_with_file("README.md");
         let policy = PathPolicyV1::bench(64, 20);
-        let (snapshot, _) = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
+        let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
         let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));
         let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
         let runtime = ConcurrentJobRuntime {
@@ -1233,25 +1233,7 @@ mod suite {
     }
 
     fn test_repo(path: &Path) -> RepoContext {
-        RepoContext::new(
-            path.to_path_buf(),
-            PathPolicyV1::bench(64, 10),
-            ChangeScopeV1 {
-                kind: ChangeKind::LocalDiff,
-                change_id: "test".to_string(),
-                source_ref: "head".to_string(),
-                target_ref: "base".to_string(),
-                base_revision_id: "base".to_string(),
-                head_revision_id: "head".to_string(),
-                merge_base_revision_id: None,
-                changed_files_manifest_ref: None,
-                diff_manifest_ref: None,
-                snapshot_mode: SnapshotMode::WorktreeHead,
-                rename_detection: RenameDetection::None,
-                changed_files: Vec::new(),
-            },
-        )
-        .unwrap()
+        RepoContext::new(path.to_path_buf(), PathPolicyV1::bench(64, 10)).unwrap()
     }
 
     fn test_change_with_file(path: &str) -> ChangeScopeV1 {

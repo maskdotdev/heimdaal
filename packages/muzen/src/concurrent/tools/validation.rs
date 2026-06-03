@@ -152,7 +152,6 @@ pub(crate) fn validate_invocation(
     Ok(ToolInvocation {
         session_id,
         turn_id,
-        original_index: call.index,
         call_id: call.call_id,
         tool_id,
         builtin_name,

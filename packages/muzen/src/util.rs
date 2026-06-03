@@ -19,15 +19,6 @@ pub(crate) fn redaction_none() -> RedactionMetadataV1 {
     }
 }
 
-pub(crate) fn stable_hash(bytes: &[u8]) -> String {
-    let mut hash = 0xcbf29ce484222325u64;
-    for byte in bytes {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    format!("fnv1a64:{hash:016x}")
-}
-
 pub(crate) fn timestamp_utc() -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
