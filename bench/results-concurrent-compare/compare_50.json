@@ -10,9 +10,9 @@
     "use|fn|struct"
   ],
   "exit_code": 0,
-  "duration_s": 0.582,
+  "duration_s": 0.633,
   "peak": {
-    "rss_mb": 12.28,
+    "rss_mb": 9.3,
     "pss_mb": null,
     "uss_mb": null,
     "process_count": 1
@@ -22,7 +22,7 @@
     "pss_mb": null,
     "uss_mb": null,
     "process_count": 0,
-    "t": 0.582
+    "t": 0.633
   },
   "samples": [
     {
@@ -37,112 +37,112 @@
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.042
+      "t": 0.044
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.079
+      "t": 0.081
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.111
+      "t": 0.123
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.146
+      "t": 0.153
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.183
+      "t": 0.195
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.211
+      "t": 0.232
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.241
+      "t": 0.268
     },
     {
       "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.277
+      "t": 0.304
     },
     {
-      "rss_mb": 6.69,
+      "rss_mb": 0.16,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.321
+      "t": 0.34
     },
     {
-      "rss_mb": 7.98,
+      "rss_mb": 7.94,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.375
+      "t": 0.412
     },
     {
-      "rss_mb": 9.38,
+      "rss_mb": 9.3,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.411
+      "t": 0.449
     },
     {
-      "rss_mb": 9.38,
+      "rss_mb": 9.3,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.438
+      "t": 0.484
     },
     {
-      "rss_mb": 9.38,
+      "rss_mb": 9.3,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.474
+      "t": 0.52
     },
     {
-      "rss_mb": 9.38,
+      "rss_mb": 9.3,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.509
-    },
-    {
-      "rss_mb": 12.28,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 0.546
+      "t": 0.556
     },
     {
       "rss_mb": 0.0,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 0,
-      "t": 0.582
+      "t": 0.597
+    },
+    {
+      "rss_mb": 0.0,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 0,
+      "t": 0.633
     }
   ],
   "stdout_lines": [
@@ -170,12 +170,12 @@
     "      \"finish\": 0",
     "    },",
     "    \"findings\": 50,",
-    "    \"elapsedMs\": 74,",
+    "    \"elapsedMs\": 84,",
     "    \"inputTokens\": 0,",
     "    \"outputTokens\": 0,",
     "    \"totalTokens\": 0,",
     "    \"artifacts\": 107,",
-    "    \"artifactBytes\": 1149129,",
+    "    \"artifactBytes\": 1142079,",
     "    \"counters\": {",
     "      \"searchScans\": 50,",
     "      \"searchDedupeWaiters\": 0,",
@@ -211,36 +211,36 @@
     "      \"finish\": 0",
     "    },",
     "    \"findings\": 50,",
-    "    \"elapsedMs\": 7,",
+    "    \"elapsedMs\": 8,",
     "    \"inputTokens\": 40000,",
     "    \"outputTokens\": 6400,",
     "    \"totalTokens\": 46400,",
     "    \"artifacts\": 3,",
-    "    \"artifactBytes\": 30717,",
+    "    \"artifactBytes\": 29934,",
     "    \"counters\": {",
     "      \"searchScans\": 1,",
     "      \"searchDedupeWaiters\": 49,",
     "      \"searchCacheHits\": 0,",
-    "      \"readCacheHits\": 1,",
+    "      \"readCacheHits\": 0,",
     "      \"readFileReads\": 1,",
     "      \"toolErrors\": 0,",
-    "      \"artifactCacheHits\": 45",
+    "      \"artifactCacheHits\": 60",
     "    },",
     "    \"toolMetrics\": {",
     "      \"read_diff\": {",
     "        \"calls\": 50,",
     "        \"successes\": 50,",
     "        \"errors\": 0,",
-    "        \"cacheHits\": 30,",
-    "        \"deduped\": 19,",
+    "        \"cacheHits\": 42,",
+    "        \"deduped\": 7,",
     "        \"outputBytes\": 60850",
     "      },",
     "      \"read_file\": {",
     "        \"calls\": 50,",
     "        \"successes\": 50,",
     "        \"errors\": 0,",
-    "        \"cacheHits\": 15,",
-    "        \"deduped\": 33,",
+    "        \"cacheHits\": 18,",
+    "        \"deduped\": 31,",
     "        \"outputBytes\": 62350",
     "      },",
     "      \"record_finding\": {",
@@ -257,13 +257,13 @@
     "        \"errors\": 0,",
     "        \"cacheHits\": 0,",
     "        \"deduped\": 49,",
-    "        \"outputBytes\": 1406700",
+    "        \"outputBytes\": 1367550",
     "      }",
     "    },",
     "    \"benchmarkValid\": true,",
     "    \"benchmarkFailures\": []",
     "  },",
-    "  \"speedup\": 10.571428571428571,",
+    "  \"speedup\": 10.5,",
     "  \"searchScanReduction\": 50.0",
     "}"
   ],

@@ -1,6 +1,6 @@
 {
   "cmd": [
-    "/Users/mask/code/review/heimdaal/rust/target/release/heimdaal-agent-core",
+    "/Users/mask/code/review/heimdaal/target/release/muzen",
     "bench",
     "--repo",
     "/Users/mask/code/review/heimdaal",
@@ -9,9 +9,9 @@
     "--max-active",
     "10",
     "--max-turns",
-    "8",
+    "5",
     "--max-tool-calls",
-    "12",
+    "4",
     "--hold-ms",
     "1000",
     "--model",
@@ -20,9 +20,9 @@
     "128"
   ],
   "exit_code": 0,
-  "duration_s": 8.862,
+  "duration_s": 7.652,
   "peak": {
-    "rss_mb": 14.81,
+    "rss_mb": 15.64,
     "pss_mb": null,
     "uss_mb": null,
     "process_count": 1
@@ -32,854 +32,756 @@
     "pss_mb": null,
     "uss_mb": null,
     "process_count": 0,
-    "t": 8.862
+    "t": 7.652
   },
   "samples": [
     {
-      "rss_mb": 12.48,
+      "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.011
+      "t": 0.007
     },
     {
-      "rss_mb": 13.8,
+      "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.074
+      "t": 0.075
     },
     {
-      "rss_mb": 13.8,
+      "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.143
+      "t": 0.146
     },
     {
-      "rss_mb": 13.8,
+      "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.218
+      "t": 0.212
     },
     {
-      "rss_mb": 13.8,
+      "rss_mb": 0.03,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.297
+      "t": 0.286
     },
     {
-      "rss_mb": 13.92,
+      "rss_mb": 12.84,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.364
+      "t": 0.352
     },
     {
-      "rss_mb": 13.95,
+      "rss_mb": 12.84,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.43
+      "t": 0.424
     },
     {
-      "rss_mb": 14.06,
+      "rss_mb": 12.84,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 0.491
-    },
-    {
-      "rss_mb": 14.09,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 0.561
-    },
-    {
-      "rss_mb": 14.12,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 0.63
-    },
-    {
-      "rss_mb": 14.12,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 0.694
-    },
-    {
-      "rss_mb": 14.12,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 0.774
-    },
-    {
-      "rss_mb": 14.12,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 0.854
-    },
-    {
-      "rss_mb": 14.12,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 0.926
-    },
-    {
-      "rss_mb": 14.12,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 1.004
-    },
-    {
-      "rss_mb": 14.12,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 1.083
-    },
-    {
-      "rss_mb": 14.12,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 1.162
-    },
-    {
-      "rss_mb": 14.12,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 1.24
-    },
-    {
-      "rss_mb": 14.12,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 1.319
-    },
-    {
-      "rss_mb": 14.27,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 1.399
+      "t": 0.493
     },
     {
       "rss_mb": 14.28,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 1.478
+      "t": 0.558
     },
     {
       "rss_mb": 14.28,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 1.556
+      "t": 0.633
     },
     {
-      "rss_mb": 14.3,
+      "rss_mb": 14.28,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 1.635
+      "t": 0.708
     },
     {
-      "rss_mb": 14.3,
+      "rss_mb": 14.28,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 1.708
+      "t": 0.778
     },
     {
-      "rss_mb": 14.59,
+      "rss_mb": 14.28,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 1.777
+      "t": 0.846
     },
     {
-      "rss_mb": 14.67,
+      "rss_mb": 14.28,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 1.836
+      "t": 0.918
     },
     {
-      "rss_mb": 14.67,
+      "rss_mb": 14.55,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 1.905
+      "t": 0.993
     },
     {
-      "rss_mb": 14.73,
+      "rss_mb": 14.55,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 1.974
+      "t": 1.068
+    },
+    {
+      "rss_mb": 14.55,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 1.144
+    },
+    {
+      "rss_mb": 14.61,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 1.22
+    },
+    {
+      "rss_mb": 14.61,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 1.297
+    },
+    {
+      "rss_mb": 14.69,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 1.372
+    },
+    {
+      "rss_mb": 14.69,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 1,
+      "t": 1.45
     },
     {
       "rss_mb": 14.78,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 2.043
+      "t": 1.518
     },
     {
       "rss_mb": 14.78,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 2.111
+      "t": 1.591
     },
     {
       "rss_mb": 14.78,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 2.187
-    },
-    {
-      "rss_mb": 14.78,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 2.267
-    },
-    {
-      "rss_mb": 14.78,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 2.346
+      "t": 1.658
     },
     {
       "rss_mb": 14.81,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 2.425
+      "t": 1.736
     },
     {
       "rss_mb": 14.81,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 2.493
+      "t": 1.81
     },
     {
-      "rss_mb": 14.78,
+      "rss_mb": 14.83,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 2.567
+      "t": 1.885
     },
     {
-      "rss_mb": 14.64,
+      "rss_mb": 14.83,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 2.634
+      "t": 1.957
     },
     {
-      "rss_mb": 14.77,
+      "rss_mb": 14.83,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 2.709
+      "t": 2.031
     },
     {
-      "rss_mb": 14.72,
+      "rss_mb": 14.83,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 2.781
+      "t": 2.106
     },
     {
-      "rss_mb": 14.72,
+      "rss_mb": 14.83,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 2.86
+      "t": 2.178
     },
     {
-      "rss_mb": 14.72,
+      "rss_mb": 14.83,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 2.939
+      "t": 2.253
     },
     {
-      "rss_mb": 14.72,
+      "rss_mb": 14.83,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 3.011
+      "t": 2.328
     },
     {
-      "rss_mb": 14.72,
+      "rss_mb": 14.83,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 3.08
+      "t": 2.404
     },
     {
-      "rss_mb": 14.72,
+      "rss_mb": 14.83,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 3.149
+      "t": 2.474
     },
     {
-      "rss_mb": 14.72,
+      "rss_mb": 14.83,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 3.209
+      "t": 2.549
     },
     {
-      "rss_mb": 14.72,
+      "rss_mb": 14.83,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 3.272
+      "t": 2.628
     },
     {
-      "rss_mb": 14.72,
+      "rss_mb": 14.83,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 3.35
+      "t": 2.702
     },
     {
-      "rss_mb": 14.72,
+      "rss_mb": 14.83,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 3.429
+      "t": 2.776
     },
     {
-      "rss_mb": 14.72,
+      "rss_mb": 14.83,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 3.509
+      "t": 2.85
     },
     {
-      "rss_mb": 14.72,
+      "rss_mb": 14.83,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 3.587
+      "t": 2.928
     },
     {
-      "rss_mb": 14.75,
+      "rss_mb": 14.83,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 3.666
+      "t": 3.001
     },
     {
-      "rss_mb": 14.72,
+      "rss_mb": 14.89,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 3.737
+      "t": 3.079
     },
     {
-      "rss_mb": 14.72,
+      "rss_mb": 14.89,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 3.814
+      "t": 3.153
     },
     {
-      "rss_mb": 14.72,
+      "rss_mb": 14.89,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 3.888
+      "t": 3.219
     },
     {
-      "rss_mb": 14.67,
+      "rss_mb": 14.89,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 3.967
+      "t": 3.294
     },
     {
-      "rss_mb": 14.67,
+      "rss_mb": 14.89,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 4.046
+      "t": 3.372
     },
     {
-      "rss_mb": 14.67,
+      "rss_mb": 15.17,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 4.126
+      "t": 3.444
     },
     {
-      "rss_mb": 14.67,
+      "rss_mb": 15.19,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 4.202
+      "t": 3.517
     },
     {
-      "rss_mb": 14.67,
+      "rss_mb": 15.2,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 4.272
+      "t": 3.592
     },
     {
-      "rss_mb": 14.67,
+      "rss_mb": 15.23,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 4.352
+      "t": 3.665
     },
     {
-      "rss_mb": 14.67,
+      "rss_mb": 15.27,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 4.432
+      "t": 3.734
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.27,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 4.511
+      "t": 3.796
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.28,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 4.588
+      "t": 3.871
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.45,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 4.658
+      "t": 3.946
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.45,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 4.735
+      "t": 4.014
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.47,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 4.807
+      "t": 4.088
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.47,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 4.878
+      "t": 4.164
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.55,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 4.937
+      "t": 4.223
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.55,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 5.011
+      "t": 4.294
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.55,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 5.086
+      "t": 4.368
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.55,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 5.163
+      "t": 4.436
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.55,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 5.235
+      "t": 4.51
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.59,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 5.311
+      "t": 4.579
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.62,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 5.39
+      "t": 4.651
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.62,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 5.465
+      "t": 4.726
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.62,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 5.544
+      "t": 4.793
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.64,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 5.623
+      "t": 4.859
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.64,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 5.702
+      "t": 4.922
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.55,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 5.781
+      "t": 4.997
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.53,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 5.855
+      "t": 5.072
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.55,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 5.933
+      "t": 5.14
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.55,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 6.013
+      "t": 5.223
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.55,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 6.083
+      "t": 5.294
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.55,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 6.162
+      "t": 5.365
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.55,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 6.241
+      "t": 5.44
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.55,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 6.319
+      "t": 5.515
     },
     {
-      "rss_mb": 14.62,
+      "rss_mb": 15.52,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 6.398
+      "t": 5.586
     },
     {
-      "rss_mb": 14.66,
+      "rss_mb": 15.52,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 6.468
+      "t": 5.658
     },
     {
-      "rss_mb": 14.66,
+      "rss_mb": 15.48,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 6.545
+      "t": 5.735
     },
     {
-      "rss_mb": 14.66,
+      "rss_mb": 15.48,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 6.624
+      "t": 5.809
     },
     {
-      "rss_mb": 14.66,
+      "rss_mb": 15.48,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 6.701
+      "t": 5.877
     },
     {
-      "rss_mb": 14.66,
+      "rss_mb": 15.48,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 6.78
+      "t": 5.944
     },
     {
-      "rss_mb": 14.66,
+      "rss_mb": 15.45,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 6.859
+      "t": 6.015
     },
     {
-      "rss_mb": 14.66,
+      "rss_mb": 15.45,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 6.938
+      "t": 6.089
     },
     {
-      "rss_mb": 14.66,
+      "rss_mb": 15.45,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 7.01
+      "t": 6.164
     },
     {
-      "rss_mb": 14.66,
+      "rss_mb": 15.45,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 7.087
+      "t": 6.234
     },
     {
-      "rss_mb": 14.66,
+      "rss_mb": 15.45,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 7.166
+      "t": 6.31
     },
     {
-      "rss_mb": 14.66,
+      "rss_mb": 15.44,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 7.246
+      "t": 6.385
     },
     {
-      "rss_mb": 14.66,
+      "rss_mb": 15.44,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 7.324
+      "t": 6.455
     },
     {
-      "rss_mb": 14.66,
+      "rss_mb": 15.44,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 7.397
+      "t": 6.528
     },
     {
-      "rss_mb": 14.66,
+      "rss_mb": 15.08,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 7.473
+      "t": 6.602
     },
     {
-      "rss_mb": 14.66,
+      "rss_mb": 15.08,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 7.541
+      "t": 6.676
     },
     {
-      "rss_mb": 14.66,
+      "rss_mb": 15.08,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 7.61
+      "t": 6.751
     },
     {
-      "rss_mb": 14.66,
+      "rss_mb": 15.08,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 7.679
+      "t": 6.828
     },
     {
-      "rss_mb": 14.66,
+      "rss_mb": 15.08,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 7.748
+      "t": 6.902
     },
     {
-      "rss_mb": 14.66,
+      "rss_mb": 15.08,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 7.812
+      "t": 6.981
     },
     {
-      "rss_mb": 14.23,
+      "rss_mb": 15.08,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 7.881
+      "t": 7.055
     },
     {
-      "rss_mb": 14.23,
+      "rss_mb": 15.08,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 7.958
+      "t": 7.134
     },
     {
-      "rss_mb": 14.23,
+      "rss_mb": 15.08,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 8.036
+      "t": 7.208
     },
     {
-      "rss_mb": 14.23,
+      "rss_mb": 15.08,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 8.115
+      "t": 7.287
     },
     {
-      "rss_mb": 14.23,
+      "rss_mb": 15.08,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 8.194
+      "t": 7.365
     },
     {
-      "rss_mb": 14.23,
+      "rss_mb": 15.08,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 8.271
+      "t": 7.434
     },
     {
-      "rss_mb": 14.23,
+      "rss_mb": 15.08,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 1,
-      "t": 8.343
-    },
-    {
-      "rss_mb": 14.23,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 8.422
-    },
-    {
-      "rss_mb": 14.23,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 8.498
-    },
-    {
-      "rss_mb": 14.23,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 8.574
-    },
-    {
-      "rss_mb": 14.23,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 8.653
-    },
-    {
-      "rss_mb": 14.23,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 8.726
-    },
-    {
-      "rss_mb": 14.23,
-      "pss_mb": null,
-      "uss_mb": null,
-      "process_count": 1,
-      "t": 8.797
+      "t": 7.502
     },
     {
       "rss_mb": 0.0,
       "pss_mb": null,
       "uss_mb": null,
       "process_count": 0,
-      "t": 8.862
+      "t": 7.576
+    },
+    {
+      "rss_mb": 0.0,
+      "pss_mb": null,
+      "uss_mb": null,
+      "process_count": 0,
+      "t": 7.652
     }
   ],
   "stdout_lines": [
     "{\"event\":\"rust_memory\",\"label\":\"after_job_build\",\"model\":\"gpt-4.1-nano\",\"sessions\":10,\"completed_sessions\":0,\"model_calls\":0,\"tool_calls\":0,\"list_changed_files_calls\":0,\"read_diff_calls\":0,\"list_files_calls\":0,\"read_file_calls\":0,\"search_text_calls\":0,\"finish_calls\":0,\"findings\":0,\"publishable_findings\":0,\"blackboard_entries\":0,\"tokens_in\":0,\"tokens_out\":0,\"tokens_total\":0,\"artifacts\":0,\"artifact_bytes\":0,\"benchmark_valid\":false,\"benchmark_failures\":[],\"elapsed_ms\":0}",
-    "{\"event\":\"rust_memory\",\"label\":\"after_work\",\"model\":\"gpt-4.1-nano\",\"sessions\":10,\"completed_sessions\":10,\"model_calls\":40,\"tool_calls\":40,\"list_changed_files_calls\":0,\"read_diff_calls\":10,\"list_files_calls\":0,\"read_file_calls\":10,\"search_text_calls\":10,\"finish_calls\":0,\"findings\":10,\"publishable_findings\":10,\"blackboard_entries\":40,\"tokens_in\":26928,\"tokens_out\":2202,\"tokens_total\":29130,\"artifacts\":24,\"artifact_bytes\":25602,\"benchmark_valid\":true,\"benchmark_failures\":[],\"elapsed_ms\":7823}",
-    "{\"event\":\"rust_memory\",\"label\":\"after_hold\",\"model\":\"gpt-4.1-nano\",\"sessions\":10,\"completed_sessions\":10,\"model_calls\":40,\"tool_calls\":40,\"list_changed_files_calls\":0,\"read_diff_calls\":10,\"list_files_calls\":0,\"read_file_calls\":10,\"search_text_calls\":10,\"finish_calls\":0,\"findings\":10,\"publishable_findings\":10,\"blackboard_entries\":40,\"tokens_in\":26928,\"tokens_out\":2202,\"tokens_total\":29130,\"artifacts\":24,\"artifact_bytes\":25602,\"benchmark_valid\":true,\"benchmark_failures\":[],\"elapsed_ms\":7823}",
+    "{\"event\":\"rust_memory\",\"label\":\"after_work\",\"model\":\"gpt-4.1-nano\",\"sessions\":10,\"completed_sessions\":10,\"model_calls\":40,\"tool_calls\":40,\"list_changed_files_calls\":0,\"read_diff_calls\":10,\"list_files_calls\":0,\"read_file_calls\":10,\"search_text_calls\":10,\"finish_calls\":0,\"findings\":10,\"publishable_findings\":10,\"blackboard_entries\":40,\"tokens_in\":26736,\"tokens_out\":2081,\"tokens_total\":28817,\"artifacts\":23,\"artifact_bytes\":18719,\"benchmark_valid\":true,\"benchmark_failures\":[],\"elapsed_ms\":6230}",
+    "{\"event\":\"rust_memory\",\"label\":\"after_hold\",\"model\":\"gpt-4.1-nano\",\"sessions\":10,\"completed_sessions\":10,\"model_calls\":40,\"tool_calls\":40,\"list_changed_files_calls\":0,\"read_diff_calls\":10,\"list_files_calls\":0,\"read_file_calls\":10,\"search_text_calls\":10,\"finish_calls\":0,\"findings\":10,\"publishable_findings\":10,\"blackboard_entries\":40,\"tokens_in\":26736,\"tokens_out\":2081,\"tokens_total\":28817,\"artifacts\":23,\"artifact_bytes\":18719,\"benchmark_valid\":true,\"benchmark_failures\":[],\"elapsed_ms\":6230}",
     "{",
     "  \"model\": \"gpt-4.1-nano\",",
     "  \"sessions\": 10,",
@@ -904,14 +806,14 @@
     "  \"findings\": 10,",
     "  \"publishableFindings\": 10,",
     "  \"blackboardEntries\": 40,",
-    "  \"inputTokens\": 26928,",
-    "  \"outputTokens\": 2202,",
-    "  \"totalTokens\": 29130,",
-    "  \"elapsedMs\": 7823,",
+    "  \"inputTokens\": 26736,",
+    "  \"outputTokens\": 2081,",
+    "  \"totalTokens\": 28817,",
+    "  \"elapsedMs\": 6230,",
     "  \"artifactStats\": {",
-    "    \"artifacts\": 24,",
-    "    \"artifactBytes\": 25602,",
-    "    \"contentRefs\": 24",
+    "    \"artifacts\": 23,",
+    "    \"artifactBytes\": 18719,",
+    "    \"contentRefs\": 23",
     "  },",
     "  \"benchmarkValid\": true,",
     "  \"benchmarkFailures\": []",
