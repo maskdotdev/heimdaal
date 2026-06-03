@@ -19,10 +19,10 @@ use crate::concurrent::runtime::{
     benchmark_failures as concurrent_benchmark_failures, ConcurrentJobRuntime,
     ConcurrentSessionSpec,
 };
-use crate::concurrent::tool_registry::{
+use crate::concurrent::tools::ToolEngine;
+use crate::concurrent::tools::{
     CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOutput, ToolRegistry,
 };
-use crate::concurrent::tools::ToolEngine;
 use crate::contracts::*;
 use crate::events::{EventEmitter, EventEmitterState};
 use crate::repo::RepoContext;

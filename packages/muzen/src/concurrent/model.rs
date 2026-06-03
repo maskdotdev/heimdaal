@@ -9,7 +9,7 @@ use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 use crate::concurrent::contracts::*;
-use crate::concurrent::tool_registry::ToolRegistry;
+use crate::concurrent::tools::ToolRegistry;
 use crate::contracts::{ModelProfileRefV1, ProviderKind, TokenUsage, ToolCallingMode, ToolName};
 use crate::util::resolve_credential_ref;
 

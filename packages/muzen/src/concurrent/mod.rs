@@ -3,5 +3,4 @@ pub(crate) mod contracts;
 pub(crate) mod model;
 pub(crate) mod repo;
 pub(crate) mod runtime;
-pub(crate) mod tool_registry;
 pub(crate) mod tools;

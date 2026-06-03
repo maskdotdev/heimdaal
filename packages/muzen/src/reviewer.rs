@@ -11,11 +11,11 @@ pub use crate::concurrent::model::{
     ConcurrentModelClient as ModelClient, ConcurrentModelRouter as ModelRouter, ModelLimiter,
     StaticModelRouter,
 };
-pub use crate::concurrent::tool_registry::{
+pub use crate::concurrent::tools::ConcurrentArtifactStore as ArtifactStore;
+pub use crate::concurrent::tools::{
     CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOutput, ToolDefinition,
     ToolRegistry, ToolSchema,
 };
-pub use crate::concurrent::tools::ConcurrentArtifactStore as ArtifactStore;
 pub use crate::contracts::{AgentBudget, Role, TokenUsage, ToolCounts};
 
 #[derive(Debug, Clone)]

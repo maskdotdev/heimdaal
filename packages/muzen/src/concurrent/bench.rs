@@ -15,7 +15,7 @@ use crate::concurrent::model::{
 };
 use crate::concurrent::repo::RepoSnapshot;
 use crate::concurrent::runtime::{ConcurrentJobRuntime, ConcurrentSessionSpec};
-use crate::concurrent::tools::ToolEngine;
+use crate::concurrent::tools::{ToolEngine, ToolRegistry};
 use crate::contracts::*;
 use crate::events::EventEmitter;
 use crate::job::{effective_personas, tool_allowed, validate_job};
@@ -146,7 +146,7 @@ pub(crate) fn run_real_bench(args: ConcurrentRealBenchArgs) -> Result<Concurrent
     let (snapshot, _snapshot_report) =
         RepoSnapshot::build(&root, &policy, &change).map_err(|error| anyhow::anyhow!("{error}"))?;
     let registry = Arc::new(
-        crate::concurrent::tool_registry::ToolRegistry::review_defaults()
+        ToolRegistry::review_defaults()
             .map_err(|error| anyhow::anyhow!("failed to build tool registry: {error}"))?,
     );
     let tools = Arc::new(
@@ -242,7 +242,7 @@ pub(crate) fn run_job_concurrent_with_result(
 ) -> Result<ConcurrentJobOutput> {
     validate_job(&job)?;
     let registry = Arc::new(
-        crate::concurrent::tool_registry::ToolRegistry::review_defaults()
+        ToolRegistry::review_defaults()
             .map_err(|error| anyhow::anyhow!("failed to build tool registry: {error}"))?,
     );
     let mut limits = RuntimeLimits::standard(
