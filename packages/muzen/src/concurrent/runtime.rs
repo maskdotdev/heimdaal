@@ -8,11 +8,15 @@ use tokio_util::sync::CancellationToken;
 use crate::concurrent::contracts::*;
 use crate::concurrent::model::{ConcurrentModelClient, ConcurrentModelRouter};
 use crate::concurrent::repo::RepoSnapshot;
+use crate::concurrent::session::{
+    artifact_event_summary, session_state, should_retry_model_error, tool_status, SessionEvidence,
+    SessionTerminal,
+};
 use crate::concurrent::tools::{count_tool_result, ToolEngine};
 use crate::contracts::{EventLevel, EventType, TokenUsage, ToolCounts, ToolName};
 use crate::events::{EventEmitter, EventRecord};
 use crate::util::redact_known_secrets;
-use serde_json::{json, Value};
+use serde_json::json;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ConcurrentSessionSpec {
@@ -242,16 +246,10 @@ impl ConcurrentJobRuntime {
         let mut tool_counts = ToolCounts::default();
         let mut tokens = TokenUsage::default();
         let mut completed = false;
-        let mut saw_diff = false;
-        let mut saw_file = false;
-        let mut saw_search = false;
-        let mut evidence_results = Vec::new();
-        let mut terminal_seen = false;
-        let mut terminal_tool = None;
-        let mut terminal_summary = None;
+        let mut evidence = SessionEvidence::default();
+        let mut terminal = SessionTerminal::default();
         let mut cancelled = false;
         let mut failed = false;
-        let mut denied_tool_errors = 0usize;
 
         for turn_index in 0..scope.budget.max_turns {
             if tool_counts.total() >= scope.budget.max_tool_calls {
@@ -327,13 +325,12 @@ impl ConcurrentJobRuntime {
                     transcript.push(ConversationItem::AssistantToolCalls {
                         calls: calls.clone(),
                     });
-                    let evidence_ready = saw_diff && saw_file && saw_search;
                     let results = self
                         .execute_guarded_batch(
                             scope.clone(),
                             turn_id,
                             calls,
-                            evidence_ready,
+                            evidence.ready(),
                             scope
                                 .budget
                                 .max_tool_calls
@@ -345,57 +342,18 @@ impl ConcurrentJobRuntime {
                         if !result.ok {
                             continue;
                         }
-                        match result.tool_name.as_builtin() {
-                            Some(ToolName::ReadDiff) => saw_diff = true,
-                            Some(ToolName::ReadFile | ToolName::ReadHeadFile) => saw_file = true,
-                            Some(ToolName::SearchText) => saw_search = true,
-                            _ => {}
-                        }
-                        if result.artifact_id.is_some()
-                            && !matches!(
-                                result.tool_name.as_builtin(),
-                                Some(
-                                    ToolName::RecordFinding
-                                        | ToolName::ChallengeFinding
-                                        | ToolName::Finish
-                                )
-                            )
-                        {
-                            evidence_results.push(result.clone());
-                        }
+                        evidence.observe(result);
                     }
-                    let terminal = results.iter().any(|result| {
-                        matches!(
-                            result.tool_name.as_builtin(),
-                            Some(ToolName::RecordFinding | ToolName::Finish)
-                        ) && result.ok
-                    });
-                    if let Some(result) = results.iter().find(|result| {
-                        matches!(
-                            result.tool_name.as_builtin(),
-                            Some(ToolName::RecordFinding | ToolName::Finish)
-                        ) && result.ok
-                    }) {
-                        terminal_tool = Some(result.tool_name.as_str().to_string());
-                        terminal_summary = terminal_result_summary(result);
-                    }
-                    terminal_seen |= terminal;
+                    let terminal_seen_this_turn = terminal.observe_batch(&results);
                     for result in results {
-                        if !result.ok
-                            && matches!(
-                                result.error.as_ref().map(|error| error.code),
-                                Some(ToolErrorCode::ToolNotAllowed)
-                            )
-                        {
-                            denied_tool_errors += 1;
-                        }
+                        terminal.observe_error(&result);
                         if result.ok
                             && result.tool_name.as_builtin() == Some(ToolName::RecordFinding)
                         {
                             let finding_id = self.tools.record_finding_result(
                                 &scope.id,
                                 &result,
-                                &evidence_results,
+                                evidence.results(),
                                 &self.review_revision_id,
                             );
                             if let Some(finding_id) = finding_id {
@@ -468,11 +426,11 @@ impl ConcurrentJobRuntime {
                             content: Box::new(result),
                         });
                     }
-                    if terminal {
+                    if terminal_seen_this_turn {
                         completed = true;
                         break;
                     }
-                    if denied_tool_errors >= 2 {
+                    if terminal.too_many_denied_tools() {
                         failed = true;
                         break;
                     }
@@ -484,7 +442,7 @@ impl ConcurrentJobRuntime {
             EventRecord::new(
                 EventLevel::Info,
                 EventType::SessionFinished,
-                json!({"state": session_state(completed, terminal_seen, cancelled, failed), "toolCounts": tool_counts, "modelCalls": model_calls}),
+                json!({"state": session_state(completed, terminal.seen(), cancelled, failed), "toolCounts": tool_counts, "modelCalls": model_calls}),
             )
             .session_id(scope.id.0.clone()),
         );
@@ -496,11 +454,11 @@ impl ConcurrentJobRuntime {
             terminal_diagnostic: SessionTerminalDiagnostic {
                 session_id: scope.id.0,
                 completed,
-                terminal_tool,
-                terminal_summary,
-                saw_diff,
-                saw_file,
-                saw_search,
+                terminal_tool: terminal.tool(),
+                terminal_summary: terminal.summary(),
+                saw_diff: evidence.saw_diff(),
+                saw_file: evidence.saw_file(),
+                saw_search: evidence.saw_search(),
                 model_calls,
                 tool_counts,
             },
@@ -683,137 +641,6 @@ impl ConcurrentJobRuntime {
         if let Some(emitter) = &self.emitter {
             emitter.emit(event);
         }
-    }
-}
-
-fn tool_status(result: &ToolResultEnvelope) -> &'static str {
-    if result.ok {
-        "ok"
-    } else {
-        "error"
-    }
-}
-
-fn session_state(
-    completed: bool,
-    terminal_seen: bool,
-    cancelled: bool,
-    failed: bool,
-) -> &'static str {
-    if cancelled {
-        "cancelled"
-    } else if completed {
-        "done"
-    } else if failed || terminal_seen {
-        "failed"
-    } else {
-        "budget_exhausted"
-    }
-}
-
-fn terminal_result_summary(result: &ToolResultEnvelope) -> Option<String> {
-    let data = result.data.as_ref()?;
-    let raw = match result.tool_name.as_builtin() {
-        Some(ToolName::RecordFinding) => data
-            .get("title")
-            .and_then(serde_json::Value::as_str)
-            .or_else(|| data.get("claim").and_then(serde_json::Value::as_str)),
-        Some(ToolName::Finish) => data.get("reason").and_then(serde_json::Value::as_str),
-        _ => None,
-    }?;
-    Some(truncate_summary(&redact_known_secrets(raw, &[]), 240))
-}
-
-fn artifact_event_summary(result: &ToolResultEnvelope) -> String {
-    let data = result.data.as_ref();
-    let summary = match result.tool_name.as_builtin() {
-        Some(ToolName::ReadDiff) => {
-            let hash = data
-                .and_then(|value| value.get("contentHash"))
-                .and_then(Value::as_str)
-                .unwrap_or("<unknown>");
-            format!("diff artifact contentHash={hash}")
-        }
-        Some(ToolName::ListChangedFiles) => {
-            let files = data
-                .and_then(|value| value.get("changedFiles"))
-                .and_then(Value::as_array)
-                .map_or(0, Vec::len);
-            format!("changed files: {files}")
-        }
-        Some(ToolName::ListFiles) => {
-            let files = data
-                .and_then(|value| value.get("files"))
-                .and_then(Value::as_array)
-                .map_or(0, Vec::len);
-            format!("listed files: {files}")
-        }
-        Some(ToolName::ReadFile | ToolName::ReadBaseFile | ToolName::ReadHeadFile) => {
-            let path = data
-                .and_then(|value| value.get("path"))
-                .and_then(Value::as_str)
-                .unwrap_or("<unknown>");
-            format!("read file artifact {path}")
-        }
-        Some(ToolName::SearchText) => {
-            let query = data
-                .and_then(|value| value.get("query"))
-                .and_then(Value::as_str)
-                .unwrap_or("<unknown>");
-            let matches = data
-                .and_then(|value| value.get("returnedMatches"))
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
-            format!("search_text query={query} matches={matches}")
-        }
-        Some(ToolName::FindRelatedFiles | ToolName::FindTestsForFile) => {
-            let path = data
-                .and_then(|value| value.get("path"))
-                .and_then(Value::as_str)
-                .unwrap_or("<unknown>");
-            let files = data
-                .and_then(|value| value.get("files"))
-                .and_then(Value::as_array)
-                .map_or(0, Vec::len);
-            format!("file relation artifact {path} files={files}")
-        }
-        Some(ToolName::ListImports) => {
-            let path = data
-                .and_then(|value| value.get("path"))
-                .and_then(Value::as_str)
-                .unwrap_or("<unknown>");
-            let imports = data
-                .and_then(|value| value.get("imports"))
-                .and_then(Value::as_array)
-                .map_or(0, Vec::len);
-            format!("imports artifact {path} imports={imports}")
-        }
-        Some(ToolName::ChallengeFinding) => {
-            let finding_id = data
-                .and_then(|value| value.get("findingId"))
-                .and_then(Value::as_str)
-                .unwrap_or("<unknown>");
-            format!("challenge finding artifact {finding_id}")
-        }
-        _ => format!("{} artifact", result.tool_name.as_str()),
-    };
-    truncate_summary(&redact_known_secrets(&summary, &[]), 240)
-}
-
-fn truncate_summary(value: &str, max_chars: usize) -> String {
-    let mut output = value.chars().take(max_chars).collect::<String>();
-    if value.chars().count() > max_chars {
-        output.push_str(" [truncated]");
-    }
-    output
-}
-
-fn should_retry_model_error(error: &RuntimeError) -> bool {
-    match error {
-        RuntimeError::Provider { retryable, .. } => *retryable,
-        RuntimeError::Timeout => true,
-        RuntimeError::Cancelled => false,
-        _ => false,
     }
 }
 
