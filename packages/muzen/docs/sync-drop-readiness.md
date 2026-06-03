@@ -50,11 +50,9 @@ Audit result:
 | Sessions | 50 |
 | Completed sessions | 50 |
 | Default concurrent runs | 1 |
-| Fallback runs | 0 |
+| Sync runs | 0 |
 | Runtime flag present | false |
 | Runtime | `concurrent` |
-| Runtime role | `candidate` |
-| Sync fallback used | false |
 | Outcome | `completed_with_findings` |
 | Publishability | `publishable` |
 | Findings | 40 |

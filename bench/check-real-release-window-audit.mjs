@@ -37,12 +37,10 @@ const totalCompletedSessions = rows.reduce(
   (sum, row) => sum + (row.completedSessions ?? 0),
   0,
 );
-const fallbackRuns = rows.filter((row) => row.syncFallbackUsed === true || row.runtime === "sync");
+const syncRuns = rows.filter((row) => row.runtime === "sync");
 const defaultConcurrentRuns = rows.filter(
   (row) =>
     row.runtime === "concurrent" &&
-    row.runtimeRole === "candidate" &&
-    row.syncFallbackUsed === false &&
     row.commandRuntimeFlagPresent === false,
 );
 
@@ -59,9 +57,9 @@ if (defaultConcurrentRuns.length !== totalRuns) {
     `audit: default concurrent runs ${defaultConcurrentRuns.length}/${totalRuns}`,
   );
 }
-if (fallbackRuns.length > 0) {
+if (syncRuns.length > 0) {
   failures.push(
-    `audit: sync fallback used in ${fallbackRuns.length} run(s): ${fallbackRuns
+    `audit: sync runtime used in ${syncRuns.length} run(s): ${syncRuns
       .map((row) => row.label)
       .join(", ")}`,
   );
@@ -89,7 +87,7 @@ console.log(
         sessions: totalSessions,
         completedSessions: totalCompletedSessions,
         defaultConcurrentRuns: defaultConcurrentRuns.length,
-        fallbackRuns: fallbackRuns.length,
+        syncRuns: syncRuns.length,
       },
       releaseWindowAuditReady,
       deletionReady,
@@ -230,9 +228,6 @@ function summarizeArtifact(artifact) {
     runStarted: Boolean(started),
     runFinished: Boolean(finished),
     runtime: payload.runtime ?? startPayload.runtime ?? null,
-    runtimeRole: payload.runtimeRole ?? startPayload.runtimeRole ?? null,
-    syncFallbackUsed:
-      payload.syncFallbackUsed ?? startPayload.syncFallbackUsed ?? null,
     sessions: payload.sessions ?? startPayload.sessions ?? null,
     completedSessions: payload.completedSessions ?? null,
     outcome: payload.outcome ?? null,
@@ -255,12 +250,6 @@ function checkRun(run) {
   }
   if (run.runtime !== "concurrent") {
     failures.push(`${run.label}: runtime expected concurrent, got ${run.runtime}`);
-  }
-  if (run.runtimeRole !== "candidate") {
-    failures.push(`${run.label}: runtimeRole expected candidate, got ${run.runtimeRole}`);
-  }
-  if (run.syncFallbackUsed !== false) {
-    failures.push(`${run.label}: syncFallbackUsed expected false, got ${run.syncFallbackUsed}`);
   }
   if (!Number.isInteger(run.sessions) || run.sessions <= 0) {
     failures.push(`${run.label}: missing positive sessions`);

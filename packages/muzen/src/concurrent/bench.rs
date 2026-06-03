@@ -309,9 +309,7 @@ pub(crate) fn run_job_concurrent_with_result(
             serde_json::json!({
                 "projectId": job.project_id,
                 "sessions": session_specs.len(),
-                "runtime": "concurrent",
-                "runtimeRole": "candidate",
-                "syncFallbackUsed": false
+                "runtime": "concurrent"
             }),
         );
     }
@@ -328,8 +326,6 @@ pub(crate) fn run_job_concurrent_with_result(
         run_id: job.run_id,
         attempt: job.attempt,
         runtime: ReviewRuntimeV1::Concurrent,
-        runtime_role: RuntimeRoleV1::Candidate,
-        sync_fallback_used: false,
         outcome,
         publishability: if report.completed_sessions == report.sessions {
             Publishability::Publishable

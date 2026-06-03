@@ -55,11 +55,11 @@ async function checkReleaseAudit() {
   const passed =
     audit.deletionReady === true &&
     (audit.sourceKind === "release" || audit.sourceKind === "canary") &&
-    audit.totals?.fallbackRuns === 0 &&
+    audit.totals?.syncRuns === 0 &&
     audit.totals?.defaultConcurrentRuns === audit.totals?.runs &&
     (audit.totals?.completedSessions ?? 0) >= (audit.minSessions ?? 1);
   recordCheck("release-window-audit", passed, {
-    detail: "release/canary audit must prove default concurrent runs and zero sync fallback use",
+    detail: "release/canary audit must prove default concurrent runs and zero sync runtime use",
     sourceKind: audit.sourceKind ?? null,
     deletionReady: audit.deletionReady ?? null,
     totals: audit.totals ?? null,
@@ -142,10 +142,10 @@ async function checkSyncSurface() {
       action: "delete or rewrite sync runtime tests after shared helper coverage moves",
     },
     {
-      id: "rollout-checker-sync-fallback-loader",
+      id: "rollout-checker-sync-loader",
       file: "bench/check-real-rollout-readiness.mjs",
-      pattern: /loadRun\("sync"|fallback/,
-      action: "replace shadow fallback loading with release-window audit once sync is deleted",
+      pattern: /loadRun\("sync"/,
+      action: "replace shadow sync loading with release-window audit once sync is deleted",
     },
   ];
 

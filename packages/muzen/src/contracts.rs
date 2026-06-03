@@ -385,8 +385,6 @@ pub(crate) struct ReviewRunResultV1 {
     pub(crate) run_id: String,
     pub(crate) attempt: u32,
     pub(crate) runtime: ReviewRuntimeV1,
-    pub(crate) runtime_role: RuntimeRoleV1,
-    pub(crate) sync_fallback_used: bool,
     pub(crate) outcome: ReviewOutcomeV1,
     pub(crate) publishability: Publishability,
     pub(crate) sessions: usize,
@@ -403,12 +401,6 @@ pub(crate) struct ReviewRunResultV1 {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ReviewRuntimeV1 {
     Concurrent,
-}
-
-#[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum RuntimeRoleV1 {
-    Candidate,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]

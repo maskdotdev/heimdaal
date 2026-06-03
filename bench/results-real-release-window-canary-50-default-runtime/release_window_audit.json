@@ -9,7 +9,7 @@
     "sessions": 50,
     "completedSessions": 50,
     "defaultConcurrentRuns": 1,
-    "fallbackRuns": 0
+    "syncRuns": 0
   },
   "releaseWindowAuditReady": true,
   "deletionReady": true,
@@ -25,8 +25,6 @@
       "runStarted": true,
       "runFinished": true,
       "runtime": "concurrent",
-      "runtimeRole": "candidate",
-      "syncFallbackUsed": false,
       "sessions": 50,
       "completedSessions": 50,
       "outcome": "completed_with_findings",
