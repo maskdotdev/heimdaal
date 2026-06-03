@@ -1,11 +1,7 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-use crate::util::stable_hash;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -388,6 +384,9 @@ pub(crate) struct ReviewRunResultV1 {
     pub(crate) schema_version: &'static str,
     pub(crate) run_id: String,
     pub(crate) attempt: u32,
+    pub(crate) runtime: ReviewRuntimeV1,
+    pub(crate) runtime_role: RuntimeRoleV1,
+    pub(crate) sync_fallback_used: bool,
     pub(crate) outcome: ReviewOutcomeV1,
     pub(crate) publishability: Publishability,
     pub(crate) sessions: usize,
@@ -398,6 +397,18 @@ pub(crate) struct ReviewRunResultV1 {
     pub(crate) tokens: TokenUsage,
     pub(crate) artifact_stats: ArtifactStats,
     pub(crate) elapsed_ms: u64,
+}
+
+#[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ReviewRuntimeV1 {
+    Concurrent,
+}
+
+#[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RuntimeRoleV1 {
+    Candidate,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
@@ -418,24 +429,6 @@ pub(crate) enum Publishability {
     NotPublishable,
 }
 
-#[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq, Hash)]
-pub(crate) struct ArtifactId(pub(crate) usize);
-
-impl ArtifactId {
-    pub(crate) fn as_string(self) -> String {
-        format!("artifact-{}", self.0)
-    }
-}
-
-#[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq, Hash)]
-pub(crate) struct FindingId(pub(crate) usize);
-
-impl FindingId {
-    pub(crate) fn as_string(self) -> String {
-        format!("finding-{}", self.0)
-    }
-}
-
 #[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Completeness {
@@ -443,19 +436,6 @@ pub(crate) enum Completeness {
     Partial,
     Truncated,
     MetadataOnly,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ArtifactMeta {
-    pub(crate) id: ArtifactId,
-    pub(crate) artifact_id: String,
-    pub(crate) kind: ArtifactKind,
-    pub(crate) bytes: usize,
-    pub(crate) content_hash: String,
-    pub(crate) completeness: Completeness,
-    pub(crate) redaction: RedactionMetadataV1,
-    pub(crate) summary: String,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
@@ -469,73 +449,6 @@ pub(crate) enum ArtifactKind {
     ImportSummary,
     ToolSummary,
     RedactedView,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct Artifact {
-    pub(crate) meta: ArtifactMeta,
-    pub(crate) content: Arc<str>,
-}
-
-#[derive(Debug, Default)]
-pub(crate) struct ArtifactStore {
-    pub(crate) inner: Mutex<Vec<Artifact>>,
-}
-
-impl ArtifactStore {
-    pub(crate) fn insert(
-        &self,
-        kind: ArtifactKind,
-        content: String,
-        summary: String,
-        completeness: Completeness,
-        redaction: RedactionMetadataV1,
-    ) -> ArtifactId {
-        let mut artifacts = self.inner.lock().expect("artifact store poisoned");
-        let id = ArtifactId(artifacts.len());
-        let bytes = content.len();
-        let content_hash = stable_hash(content.as_bytes());
-        artifacts.push(Artifact {
-            meta: ArtifactMeta {
-                id,
-                artifact_id: id.as_string(),
-                kind,
-                bytes,
-                content_hash,
-                completeness,
-                redaction,
-                summary,
-            },
-            content: Arc::<str>::from(content),
-        });
-        id
-    }
-
-    pub(crate) fn meta(&self, id: ArtifactId) -> Option<ArtifactMeta> {
-        self.inner
-            .lock()
-            .expect("artifact store poisoned")
-            .get(id.0)
-            .map(|artifact| artifact.meta.clone())
-    }
-
-    pub(crate) fn stats(&self) -> ArtifactStats {
-        let artifacts = self.inner.lock().expect("artifact store poisoned");
-        ArtifactStats {
-            artifacts: artifacts.len(),
-            artifact_bytes: artifacts.iter().map(|artifact| artifact.meta.bytes).sum(),
-            content_refs: artifacts
-                .iter()
-                .map(|artifact| Arc::strong_count(&artifact.content))
-                .sum(),
-        }
-    }
-
-    pub(crate) fn snippet(&self, id: ArtifactId, max_chars: usize) -> Option<String> {
-        let artifacts = self.inner.lock().expect("artifact store poisoned");
-        let artifact = artifacts.get(id.0)?;
-        Some(artifact.content.chars().take(max_chars).collect())
-    }
 }
 
 #[derive(Debug, Default, Serialize, Clone)]
@@ -662,103 +575,6 @@ pub(crate) enum FindingPublishability {
     NotPublishable,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct FindingRecord {
-    pub(crate) finding: FindingV1,
-}
-
-#[derive(Debug, Default)]
-pub(crate) struct FindingStore {
-    pub(crate) findings: Mutex<Vec<FindingRecord>>,
-}
-
-impl FindingStore {
-    pub(crate) fn insert(
-        &self,
-        title: String,
-        claim: String,
-        discovered_by: String,
-        evidence: Vec<EvidenceRefV1>,
-    ) -> FindingId {
-        let mut findings = self.findings.lock().expect("finding store poisoned");
-        let id = FindingId(findings.len());
-        let file_refs = evidence
-            .iter()
-            .map(|item| item.location.clone())
-            .collect::<Vec<_>>();
-        let validated = !evidence.is_empty()
-            && evidence
-                .iter()
-                .all(|item| item.redaction.redaction_state != RedactionState::Full);
-        findings.push(FindingRecord {
-            finding: FindingV1 {
-                id: id.as_string(),
-                title,
-                claim,
-                severity: FindingSeverity::Low,
-                confidence: if validated { 0.72 } else { 0.25 },
-                validation_status: if validated {
-                    ValidationStatus::Validated
-                } else {
-                    ValidationStatus::Rejected
-                },
-                report_status: if validated {
-                    ReportStatus::Included
-                } else {
-                    ReportStatus::Suppressed
-                },
-                publishability: if validated {
-                    FindingPublishability::Publishable
-                } else {
-                    FindingPublishability::NotPublishable
-                },
-                evidence,
-                file_refs,
-                discovered_by: vec![discovered_by],
-                challenged_by: Vec::new(),
-            },
-        });
-        id
-    }
-
-    pub(crate) fn all(&self) -> Vec<FindingV1> {
-        self.findings
-            .lock()
-            .expect("finding store poisoned")
-            .iter()
-            .map(|record| record.finding.clone())
-            .collect()
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.findings.lock().expect("finding store poisoned").len()
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum AgentEvent {
-    ModelAction {
-        summary: String,
-    },
-    ToolResult {
-        tool_call_id: String,
-        tool: ToolName,
-        artifact_id: ArtifactId,
-        summary: String,
-        completeness: Completeness,
-    },
-    Finding {
-        finding_id: FindingId,
-        summary: String,
-    },
-    ToolDenied {
-        tool_call_id: String,
-        tool: ToolName,
-        error_code: String,
-    },
-}
-
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolName {
@@ -793,101 +609,6 @@ impl ToolName {
             Self::RecordFinding => "record_finding",
             Self::ChallengeFinding => "challenge_finding",
             Self::Finish => "finish",
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum ToolStatus {
-    Ok,
-    Denied,
-    NotFound,
-    InvalidArgs,
-    BudgetExceeded,
-    Timeout,
-    InternalError,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ToolResultV1 {
-    pub(crate) tool_call_id: String,
-    pub(crate) tool_name: ToolName,
-    pub(crate) status: ToolStatus,
-    pub(crate) error_code: Option<String>,
-    pub(crate) completeness: Completeness,
-    pub(crate) artifact_ids: Vec<String>,
-    pub(crate) summary: String,
-    pub(crate) bytes_read: usize,
-    pub(crate) bytes_returned: usize,
-    pub(crate) duration_ms: u64,
-    pub(crate) redaction: RedactionMetadataV1,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) enum ModelAction {
-    ListChangedFiles,
-    ReadDiff,
-    ListFiles,
-    ReadFile(PathBuf),
-    ReadBaseFile(PathBuf),
-    ReadHeadFile(PathBuf),
-    SearchText(String),
-    FindRelatedFiles(PathBuf),
-    FindTestsForFile(PathBuf),
-    ListImports(PathBuf),
-    RecordFinding {
-        title: String,
-        claim: String,
-    },
-    ChallengeFinding {
-        finding_id: String,
-        rationale: String,
-    },
-    Finish(String),
-}
-
-impl ModelAction {
-    pub(crate) fn tool_name(&self) -> ToolName {
-        match self {
-            Self::ListChangedFiles => ToolName::ListChangedFiles,
-            Self::ReadDiff => ToolName::ReadDiff,
-            Self::ListFiles => ToolName::ListFiles,
-            Self::ReadFile(_) => ToolName::ReadFile,
-            Self::ReadBaseFile(_) => ToolName::ReadBaseFile,
-            Self::ReadHeadFile(_) => ToolName::ReadHeadFile,
-            Self::SearchText(_) => ToolName::SearchText,
-            Self::FindRelatedFiles(_) => ToolName::FindRelatedFiles,
-            Self::FindTestsForFile(_) => ToolName::FindTestsForFile,
-            Self::ListImports(_) => ToolName::ListImports,
-            Self::RecordFinding { .. } => ToolName::RecordFinding,
-            Self::ChallengeFinding { .. } => ToolName::ChallengeFinding,
-            Self::Finish(_) => ToolName::Finish,
-        }
-    }
-
-    pub(crate) fn summary(&self) -> String {
-        match self {
-            Self::ListChangedFiles => "model chose list_changed_files".to_string(),
-            Self::ReadDiff => "model chose read_diff".to_string(),
-            Self::ListFiles => "model chose list_files".to_string(),
-            Self::ReadFile(path) => format!("model chose read_file {}", path.display()),
-            Self::ReadBaseFile(path) => format!("model chose read_base_file {}", path.display()),
-            Self::ReadHeadFile(path) => format!("model chose read_head_file {}", path.display()),
-            Self::SearchText(query) => format!("model chose search_text {query}"),
-            Self::FindRelatedFiles(path) => {
-                format!("model chose find_related_files {}", path.display())
-            }
-            Self::FindTestsForFile(path) => {
-                format!("model chose find_tests_for_file {}", path.display())
-            }
-            Self::ListImports(path) => format!("model chose list_imports {}", path.display()),
-            Self::RecordFinding { title, .. } => format!("model chose record_finding {title}"),
-            Self::ChallengeFinding { finding_id, .. } => {
-                format!("model chose challenge_finding {finding_id}")
-            }
-            Self::Finish(reason) => format!("model finished: {reason}"),
         }
     }
 }
@@ -976,56 +697,4 @@ impl ToolCounts {
             + self.challenge_finding
             + self.finish
     }
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct BlackboardEntry {
-    pub(crate) session_id: String,
-    pub(crate) entry_type: &'static str,
-    pub(crate) summary: String,
-    pub(crate) artifact_id: Option<String>,
-    pub(crate) finding_id: Option<String>,
-}
-
-#[derive(Debug, Default)]
-pub(crate) struct Blackboard {
-    pub(crate) entries: Mutex<Vec<BlackboardEntry>>,
-}
-
-impl Blackboard {
-    pub(crate) fn push(&self, entry: BlackboardEntry) {
-        self.entries
-            .lock()
-            .expect("blackboard poisoned")
-            .push(entry);
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.entries.lock().expect("blackboard poisoned").len()
-    }
-}
-
-#[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum AgentState {
-    Ready,
-    Running,
-    Done,
-    Failed,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct AgentSession {
-    pub(crate) id: String,
-    pub(crate) run_id: String,
-    pub(crate) role: Role,
-    pub(crate) objective: String,
-    pub(crate) cwd: PathBuf,
-    pub(crate) model_profile_id: String,
-    pub(crate) state: AgentState,
-    pub(crate) budget: AgentBudget,
-    pub(crate) allowed_tools: ToolMask,
-    pub(crate) events: Vec<AgentEvent>,
 }

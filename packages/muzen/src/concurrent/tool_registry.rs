@@ -32,6 +32,12 @@ impl ToolRegistry {
             definitions: HashMap::new(),
         };
         registry.register_builtin(
+            ToolName::ListChangedFiles,
+            "List files in the review change set.",
+            json!({}),
+            true,
+        )?;
+        registry.register_builtin(
             ToolName::ReadDiff,
             "Read the review diff manifest.",
             json!({}),
@@ -50,6 +56,12 @@ impl ToolRegistry {
             true,
         )?;
         registry.register_builtin(
+            ToolName::ReadBaseFile,
+            "Read a base snapshot file by repo-relative path when a base snapshot is available.",
+            json!({"path": {"type": "string"}}),
+            true,
+        )?;
+        registry.register_builtin(
             ToolName::ReadHeadFile,
             "Read a head/review file by repo-relative path.",
             json!({"path": {"type": "string"}}),
@@ -62,11 +74,38 @@ impl ToolRegistry {
             true,
         )?;
         registry.register_builtin(
+            ToolName::FindRelatedFiles,
+            "Find files likely related to a repo-relative path.",
+            json!({"path": {"type": "string"}}),
+            true,
+        )?;
+        registry.register_builtin(
+            ToolName::FindTestsForFile,
+            "Find likely tests for a repo-relative path.",
+            json!({"path": {"type": "string"}}),
+            true,
+        )?;
+        registry.register_builtin(
+            ToolName::ListImports,
+            "List import-like lines from a repo-relative text file.",
+            json!({"path": {"type": "string"}}),
+            true,
+        )?;
+        registry.register_builtin(
             ToolName::RecordFinding,
             "Record one evidence-backed candidate finding.",
             json!({
                 "title": {"type": "string"},
                 "claim": {"type": "string"}
+            }),
+            false,
+        )?;
+        registry.register_builtin(
+            ToolName::ChallengeFinding,
+            "Challenge a recorded finding with a rationale.",
+            json!({
+                "finding_id": {"type": "string"},
+                "rationale": {"type": "string"}
             }),
             false,
         )?;

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -17,7 +17,12 @@ use tokio_util::sync::CancellationToken;
 use crate::concurrent::contracts::*;
 use crate::concurrent::repo::{FileMeta, RepoSnapshot};
 use crate::concurrent::tool_registry::{CustomToolContext, ToolRegistry};
-use crate::contracts::{ToolCounts, ToolName};
+use crate::contracts::{
+    ArtifactKind, ByteRangeV1, EvidenceLocationV1, EvidenceRefV1, EvidenceRevision,
+    FindingPublishability, FindingSeverity, FindingV1, LineRangeV1, ReportStatus, ToolCounts,
+    ToolName, ValidationStatus,
+};
+use crate::util::redaction_none;
 
 #[derive(Debug)]
 pub(crate) struct ToolEngine {
@@ -88,6 +93,18 @@ impl ToolEngine {
         })
     }
 
+    pub(crate) fn record_finding_result(
+        &self,
+        session_id: &SessionId,
+        result: &ToolResultEnvelope,
+        evidence_results: &[ToolResultEnvelope],
+        revision_id: &str,
+    ) -> Option<String> {
+        let evidence = self.evidence_refs(evidence_results, revision_id);
+        self.findings
+            .insert_from_tool_result(session_id, result, evidence)
+    }
+
     pub(crate) async fn execute_batch(
         &self,
         scope: SessionScope,
@@ -132,6 +149,31 @@ impl ToolEngine {
             return results;
         }
 
+        let mut seen_calls = HashSet::new();
+        let mut duplicate_results = Vec::new();
+        let mut calls_to_execute = Vec::new();
+        for call in calls {
+            let key = stable_id(&[call.name.as_str(), &call.raw_arguments]);
+            if matches!(
+                call.name.as_builtin(),
+                Some(ToolName::RecordFinding | ToolName::Finish)
+            ) || seen_calls.insert(key)
+            {
+                calls_to_execute.push(call);
+            } else {
+                duplicate_results.push((
+                    call.index,
+                    self.error_result(
+                        call.call_id,
+                        call.name,
+                        ToolErrorCode::InvalidArgs,
+                        "duplicate tool call in same model turn",
+                        false,
+                    ),
+                ));
+            }
+        }
+
         let per_session = Arc::new(Semaphore::new(
             self.limits.max_tool_parallelism_per_session.max(1),
         ));
@@ -141,7 +183,7 @@ impl ToolEngine {
             .scope_key(&self.snapshot.snapshot_id);
         let scope = Arc::new(scope);
         let mut futures = FuturesUnordered::new();
-        for call in calls {
+        for call in calls_to_execute {
             let engine = self;
             let per_session = Arc::clone(&per_session);
             let cancel = cancel.clone();
@@ -182,6 +224,7 @@ impl ToolEngine {
         }
 
         let mut ordered = Vec::new();
+        ordered.extend(duplicate_results);
         while let Some(result) = futures.next().await {
             ordered.push(result);
         }
@@ -300,6 +343,12 @@ impl ToolEngine {
         cache_status: CacheStatus,
     ) -> ToolResultEnvelope {
         match invocation.builtin_name {
+            Some(ToolName::ListChangedFiles) => self.list_changed_files(
+                invocation.call_id,
+                &invocation.capabilities.fs_scope,
+                &invocation.scope_key,
+                cache_status,
+            ),
             Some(ToolName::ReadDiff) => self.read_diff(invocation.call_id, cache_status),
             Some(ToolName::ListFiles) => self.list_files(
                 invocation.call_id,
@@ -307,6 +356,27 @@ impl ToolEngine {
                 &invocation.scope_key,
                 cache_status,
             ),
+            Some(ToolName::ReadBaseFile) => {
+                let ToolArgs::ReadFile { path } = invocation.args else {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::InvalidArgs,
+                        "read_base_file requires path",
+                        false,
+                    );
+                };
+                if !invocation.capabilities.fs_scope.allows(&path) {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::PathDenied,
+                        "path is outside the session filesystem scope",
+                        false,
+                    );
+                }
+                self.base_snapshot_unavailable(invocation.call_id, path, cache_status)
+            }
             Some(ToolName::ReadFile | ToolName::ReadHeadFile) => {
                 let ToolArgs::ReadFile { path } = invocation.args else {
                     return self.error_result(
@@ -356,6 +426,58 @@ impl ToolEngine {
                 )
                 .await
             }
+            Some(ToolName::FindRelatedFiles | ToolName::FindTestsForFile) => {
+                let ToolArgs::ReadFile { path } = invocation.args else {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::InvalidArgs,
+                        "related/test file tools require path",
+                        false,
+                    );
+                };
+                if !invocation.capabilities.fs_scope.allows(&path) {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::PathDenied,
+                        "path is outside the session filesystem scope",
+                        false,
+                    );
+                }
+                self.find_files_for_path(
+                    invocation.call_id,
+                    invocation
+                        .builtin_name
+                        .expect("related/test branch has builtin tool"),
+                    path,
+                    &invocation.capabilities.fs_scope,
+                    &invocation.scope_key,
+                    cache_status,
+                )
+            }
+            Some(ToolName::ListImports) => {
+                let ToolArgs::ReadFile { path } = invocation.args else {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::InvalidArgs,
+                        "list_imports requires path",
+                        false,
+                    );
+                };
+                if !invocation.capabilities.fs_scope.allows(&path) {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::PathDenied,
+                        "path is outside the session filesystem scope",
+                        false,
+                    );
+                }
+                self.list_imports(invocation.call_id, path, cache_status)
+                    .await
+            }
             Some(ToolName::RecordFinding) => {
                 let ToolArgs::RecordFinding { title, claim } = invocation.args else {
                     return self.error_result(
@@ -368,6 +490,22 @@ impl ToolEngine {
                 };
                 self.record_finding(invocation.call_id, title, claim)
             }
+            Some(ToolName::ChallengeFinding) => {
+                let ToolArgs::ChallengeFinding {
+                    finding_id,
+                    rationale,
+                } = invocation.args
+                else {
+                    return self.error_result(
+                        invocation.call_id,
+                        invocation.tool_id,
+                        ToolErrorCode::InvalidArgs,
+                        "challenge_finding requires finding_id and rationale",
+                        false,
+                    );
+                };
+                self.challenge_finding(invocation.call_id, finding_id, rationale)
+            }
             Some(ToolName::Finish) => {
                 let reason = match invocation.args {
                     ToolArgs::Finish { reason } => reason,
@@ -375,13 +513,6 @@ impl ToolEngine {
                 };
                 self.finish(invocation.call_id, reason)
             }
-            Some(_) => self.error_result(
-                invocation.call_id,
-                invocation.tool_id,
-                ToolErrorCode::UnknownTool,
-                "tool is not implemented in concurrent runtime",
-                false,
-            ),
             None => self.custom_tool(invocation, cancel, cache_status).await,
         }
     }
@@ -391,7 +522,7 @@ impl ToolEngine {
             ToolArgs::Empty
                 if matches!(
                     invocation.builtin_name,
-                    Some(ToolName::ReadDiff | ToolName::ListFiles)
+                    Some(ToolName::ListChangedFiles | ToolName::ReadDiff | ToolName::ListFiles)
                 ) =>
             {
                 Some(stable_id(&[
@@ -469,6 +600,51 @@ impl ToolEngine {
         }
     }
 
+    fn list_changed_files(
+        &self,
+        call_id: ToolCallId,
+        fs_scope: &FsScope,
+        scope_key: &ScopeKey,
+        cache_status: CacheStatus,
+    ) -> ToolResultEnvelope {
+        let files = self
+            .snapshot
+            .manifest
+            .changed_file_entries
+            .iter()
+            .filter(|file| fs_scope.allows(&file.rel_path))
+            .map(|file| file.summary.clone())
+            .collect::<Vec<_>>();
+        let content = files.join("\n");
+        let artifact_id = self.artifacts.insert(
+            ArtifactKey(stable_id(&[
+                &self.snapshot.snapshot_id.0,
+                "list_changed_files",
+                scope_key.as_str(),
+            ])),
+            content,
+        );
+        ToolResultEnvelope {
+            ok: true,
+            tool_call_id: call_id,
+            tool_name: ToolId::from(ToolName::ListChangedFiles),
+            snapshot_id: self.snapshot.snapshot_id.clone(),
+            artifact_id: Some(artifact_id),
+            cache: CacheInfo {
+                status: cache_status,
+                key_hash: None,
+            },
+            limits: LimitInfo {
+                output_bytes: files.iter().map(String::len).sum(),
+                ..LimitInfo::default()
+            },
+            data: Some(json!({
+                "changedFiles": files,
+            })),
+            error: None,
+        }
+    }
+
     fn list_files(
         &self,
         call_id: ToolCallId,
@@ -521,6 +697,45 @@ impl ToolEngine {
         }
     }
 
+    fn base_snapshot_unavailable(
+        &self,
+        call_id: ToolCallId,
+        path: RepoPath,
+        cache_status: CacheStatus,
+    ) -> ToolResultEnvelope {
+        let content = format!("base snapshot unavailable for {}", path.display());
+        let artifact_id = self.artifacts.insert(
+            ArtifactKey(stable_id(&[
+                &self.snapshot.snapshot_id.0,
+                "read_base_file",
+                &path.display(),
+            ])),
+            content.clone(),
+        );
+        ToolResultEnvelope {
+            ok: true,
+            tool_call_id: call_id,
+            tool_name: ToolId::from(ToolName::ReadBaseFile),
+            snapshot_id: self.snapshot.snapshot_id.clone(),
+            artifact_id: Some(artifact_id),
+            cache: CacheInfo {
+                status: cache_status,
+                key_hash: None,
+            },
+            limits: LimitInfo {
+                output_bytes: content.len(),
+                ..LimitInfo::default()
+            },
+            data: Some(json!({
+                "path": path.display(),
+                "available": false,
+                "errorCode": "BASE_SNAPSHOT_UNAVAILABLE",
+                "message": content,
+            })),
+            error: None,
+        }
+    }
+
     async fn read_file(
         &self,
         call_id: ToolCallId,
@@ -549,6 +764,7 @@ impl ToolEngine {
         match self.read.read_file(&file).await {
             Ok(read) => {
                 let content = self.redactor.redact(&read.content);
+                let line_count = read.content.lines().count().max(1);
                 let tool_id = ToolId::from(tool_name);
                 let artifact_id = self.artifacts.insert(
                     ArtifactKey(stable_id(&[
@@ -577,6 +793,10 @@ impl ToolEngine {
                     data: Some(json!({
                         "path": path.display(),
                         "content": content,
+                        "lineRange": {
+                            "startLine": 1,
+                            "endLine": line_count,
+                        },
                         "evidenceId": stable_id(&[
                             &self.snapshot.snapshot_id.0,
                             &file.file_id.0.to_string(),
@@ -588,6 +808,154 @@ impl ToolEngine {
                 }
             }
             Err(error) => self.runtime_error_result(call_id, tool_name.into(), error),
+        }
+    }
+
+    fn find_files_for_path(
+        &self,
+        call_id: ToolCallId,
+        tool_name: ToolName,
+        path: RepoPath,
+        fs_scope: &FsScope,
+        scope_key: &ScopeKey,
+        cache_status: CacheStatus,
+    ) -> ToolResultEnvelope {
+        let stem = path
+            .as_path()
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_string();
+        let mut files = self
+            .snapshot
+            .manifest
+            .files
+            .iter()
+            .filter(|file| file.is_text_candidate && fs_scope.allows(&file.rel_path))
+            .filter(|file| {
+                if tool_name == ToolName::FindRelatedFiles {
+                    file.rel_path.as_path() != path.as_path()
+                        && !stem.is_empty()
+                        && file.rel_path.display().contains(&stem)
+                } else {
+                    let text = file.rel_path.display();
+                    (text.contains("test") || text.contains("spec"))
+                        && (stem.is_empty() || text.contains(&stem))
+                }
+            })
+            .map(|file| file.rel_path.display())
+            .take(80)
+            .collect::<Vec<_>>();
+        files.sort();
+        let truncated = files.len() >= 80;
+        let content = files.join("\n");
+        let artifact_id = self.artifacts.insert(
+            ArtifactKey(stable_id(&[
+                &self.snapshot.snapshot_id.0,
+                tool_name.as_str(),
+                scope_key.as_str(),
+                &path.display(),
+            ])),
+            content,
+        );
+        ToolResultEnvelope {
+            ok: true,
+            tool_call_id: call_id,
+            tool_name: ToolId::from(tool_name),
+            snapshot_id: self.snapshot.snapshot_id.clone(),
+            artifact_id: Some(artifact_id),
+            cache: CacheInfo {
+                status: cache_status,
+                key_hash: Some(stable_id(&[&path.display()])),
+            },
+            limits: LimitInfo {
+                truncated,
+                output_bytes: files.iter().map(String::len).sum(),
+                ..LimitInfo::default()
+            },
+            data: Some(json!({
+                "path": path.display(),
+                "files": files,
+            })),
+            error: None,
+        }
+    }
+
+    async fn list_imports(
+        &self,
+        call_id: ToolCallId,
+        path: RepoPath,
+        cache_status: CacheStatus,
+    ) -> ToolResultEnvelope {
+        let Ok(file) = self.snapshot.lookup(&path).cloned() else {
+            return self.error_result(
+                call_id,
+                ToolName::ListImports.into(),
+                ToolErrorCode::PathDenied,
+                "path is not present in the repo manifest",
+                false,
+            );
+        };
+        let Ok(_permit) = self.read_permits.clone().acquire_owned().await else {
+            return self.error_result(
+                call_id,
+                ToolName::ListImports.into(),
+                ToolErrorCode::Internal,
+                "read semaphore closed",
+                false,
+            );
+        };
+        match self.read.read_file(&file).await {
+            Ok(read) => {
+                let imports = read
+                    .content
+                    .lines()
+                    .enumerate()
+                    .filter(|(_, line)| {
+                        let trimmed = line.trim_start();
+                        trimmed.starts_with("use ")
+                            || trimmed.starts_with("import ")
+                            || trimmed.starts_with("export ")
+                            || trimmed.starts_with("require(")
+                            || trimmed.starts_with("from ")
+                    })
+                    .map(|(index, line)| {
+                        format!("{}:{}:{}", path.display(), index + 1, line.trim())
+                    })
+                    .collect::<Vec<_>>();
+                let content = self.redactor.redact(&imports.join("\n"));
+                let artifact_id = self.artifacts.insert(
+                    ArtifactKey(stable_id(&[
+                        &self.snapshot.snapshot_id.0,
+                        "list_imports",
+                        &file.fingerprint,
+                        &path.display(),
+                    ])),
+                    content,
+                );
+                ToolResultEnvelope {
+                    ok: true,
+                    tool_call_id: call_id,
+                    tool_name: ToolId::from(ToolName::ListImports),
+                    snapshot_id: self.snapshot.snapshot_id.clone(),
+                    artifact_id: Some(artifact_id),
+                    cache: CacheInfo {
+                        status: cache_status,
+                        key_hash: Some(file.fingerprint.clone()),
+                    },
+                    limits: LimitInfo {
+                        truncated: read.truncated,
+                        output_bytes: imports.iter().map(String::len).sum(),
+                        ..LimitInfo::default()
+                    },
+                    data: Some(json!({
+                        "path": path.display(),
+                        "imports": imports,
+                    })),
+                    error: None,
+                }
+            }
+            Err(error) => self.runtime_error_result(call_id, ToolName::ListImports.into(), error),
         }
     }
 
@@ -610,13 +978,51 @@ impl ToolEngine {
         }
     }
 
+    fn challenge_finding(
+        &self,
+        call_id: ToolCallId,
+        finding_id: String,
+        rationale: String,
+    ) -> ToolResultEnvelope {
+        let content = format!("{finding_id}: {rationale}");
+        let artifact_id = self.artifacts.insert(
+            ArtifactKey(stable_id(&[
+                &self.snapshot.snapshot_id.0,
+                "challenge_finding",
+                &finding_id,
+                &rationale,
+            ])),
+            self.redactor.redact(&content),
+        );
+        ToolResultEnvelope {
+            ok: true,
+            tool_call_id: call_id,
+            tool_name: ToolId::from(ToolName::ChallengeFinding),
+            snapshot_id: self.snapshot.snapshot_id.clone(),
+            artifact_id: Some(artifact_id),
+            cache: CacheInfo {
+                status: CacheStatus::NotCacheable,
+                key_hash: None,
+            },
+            limits: LimitInfo {
+                output_bytes: content.len(),
+                ..LimitInfo::default()
+            },
+            data: Some(json!({
+                "findingId": finding_id,
+                "rationale": rationale,
+            })),
+            error: None,
+        }
+    }
+
     fn record_finding(
         &self,
         call_id: ToolCallId,
         title: String,
         claim: String,
     ) -> ToolResultEnvelope {
-        let finding_id = self.findings.insert(title.clone(), claim.clone());
+        let finding_id = finding_id_for_call(&call_id, &title, &claim);
         ToolResultEnvelope {
             ok: true,
             tool_call_id: call_id,
@@ -635,6 +1041,40 @@ impl ToolEngine {
             })),
             error: None,
         }
+    }
+
+    fn evidence_refs(
+        &self,
+        results: &[ToolResultEnvelope],
+        revision_id: &str,
+    ) -> Vec<EvidenceRefV1> {
+        results
+            .iter()
+            .filter(|result| result.ok)
+            .filter_map(|result| {
+                let tool = result.tool_name.as_builtin()?;
+                let kind = artifact_kind_for_tool(tool)?;
+                let artifact_id = result.artifact_id.as_ref()?;
+                let artifact = self.artifacts.get(artifact_id)?;
+                Some(EvidenceRefV1 {
+                    evidence_id: format!("evidence-{}", artifact_id.0),
+                    artifact_id: artifact_id.0.clone(),
+                    kind,
+                    revision: evidence_revision_for_tool(tool),
+                    revision_id: revision_id.to_string(),
+                    location: evidence_location(result, &self.snapshot),
+                    line_range: evidence_line_range(result),
+                    byte_range: Some(ByteRangeV1 {
+                        start_byte: 0,
+                        end_byte: artifact.bytes,
+                    }),
+                    diff_anchor: None,
+                    content_hash: artifact.content_hash,
+                    redaction: redaction_none(),
+                    producing_tool_call_id: result.tool_call_id.0.clone(),
+                })
+            })
+            .collect()
     }
 
     fn finish(&self, call_id: ToolCallId, reason: String) -> ToolResultEnvelope {
@@ -805,6 +1245,10 @@ impl ToolEngine {
 
     pub(crate) fn snapshot_tool_metrics(&self) -> BTreeMap<ToolMetricKey, ToolMetricsSnapshot> {
         self.metrics.snapshot()
+    }
+
+    pub(crate) fn record_tool_metrics(&self, results: &[ToolResultEnvelope]) {
+        self.record_batch_metrics(results);
     }
 
     fn record_batch_metrics(&self, results: &[ToolResultEnvelope]) {
@@ -999,6 +1443,7 @@ impl SearchCoordinator {
             .iter()
             .map(|line| self.redactor.redact(line))
             .collect::<Vec<_>>();
+        let first_match = matches.first().and_then(|line| parse_search_match(line));
         let content = redacted.join("\n");
         let artifact_id = self.artifacts.insert(
             ArtifactKey(stable_id(&[
@@ -1035,6 +1480,10 @@ impl SearchCoordinator {
                 "returnedMatches": redacted.len(),
                 "truncated": truncated,
                 "matches": redacted,
+                "firstMatch": first_match.map(|item| json!({
+                    "path": item.path,
+                    "line": item.line,
+                })),
                 "elapsedMs": started.elapsed().as_millis() as u64,
             })),
             error: None,
@@ -1189,22 +1638,187 @@ impl ConcurrentArtifact {
 
 #[derive(Debug, Default)]
 pub(crate) struct ConcurrentFindingStore {
-    by_id: DashMap<String, (String, String)>,
+    by_id: DashMap<String, FindingV1>,
     order: Mutex<Vec<String>>,
 }
 
 impl ConcurrentFindingStore {
-    fn insert(&self, title: String, claim: String) -> String {
-        let id = format!("finding_{}", stable_id(&[&title, &claim]));
-        if self.by_id.insert(id.clone(), (title, claim)).is_none() {
+    fn insert_from_tool_result(
+        &self,
+        session_id: &SessionId,
+        result: &ToolResultEnvelope,
+        evidence: Vec<EvidenceRefV1>,
+    ) -> Option<String> {
+        let data = result.data.as_ref()?;
+        let id = data.get("findingId")?.as_str()?.to_string();
+        let title = data.get("title")?.as_str()?.to_string();
+        let claim = data.get("claim")?.as_str()?.to_string();
+        let file_refs = evidence
+            .iter()
+            .map(|item| item.location.clone())
+            .collect::<Vec<_>>();
+        let validated = !evidence.is_empty();
+        let finding = FindingV1 {
+            id: id.clone(),
+            title,
+            claim,
+            severity: FindingSeverity::Low,
+            confidence: if validated { 0.72 } else { 0.25 },
+            validation_status: if validated {
+                ValidationStatus::Validated
+            } else {
+                ValidationStatus::Rejected
+            },
+            report_status: if validated {
+                ReportStatus::Included
+            } else {
+                ReportStatus::Suppressed
+            },
+            publishability: if validated {
+                FindingPublishability::Publishable
+            } else {
+                FindingPublishability::NotPublishable
+            },
+            evidence,
+            file_refs,
+            discovered_by: vec![session_id.0.clone()],
+            challenged_by: Vec::new(),
+        };
+        if self.by_id.insert(id.clone(), finding).is_none() {
             self.order.lock().push(id.clone());
         }
-        id
+        Some(id)
+    }
+
+    pub(crate) fn all(&self) -> Vec<FindingV1> {
+        self.order
+            .lock()
+            .iter()
+            .filter_map(|id| self.by_id.get(id))
+            .map(|finding| finding.clone())
+            .collect()
     }
 
     pub(crate) fn len(&self) -> usize {
         self.by_id.len()
     }
+
+    pub(crate) fn publishable_len(&self) -> usize {
+        self.by_id
+            .iter()
+            .filter(|entry| {
+                entry.validation_status == ValidationStatus::Validated
+                    && matches!(entry.publishability, FindingPublishability::Publishable)
+            })
+            .count()
+    }
+}
+
+fn finding_id_for_call(call_id: &ToolCallId, title: &str, claim: &str) -> String {
+    format!(
+        "finding_{}",
+        stable_id(&[&call_id.0, title, claim])
+            .chars()
+            .take(16)
+            .collect::<String>()
+    )
+}
+
+fn artifact_kind_for_tool(tool: ToolName) -> Option<ArtifactKind> {
+    match tool {
+        ToolName::ReadDiff => Some(ArtifactKind::DiffHunk),
+        ToolName::ReadFile | ToolName::ReadBaseFile | ToolName::ReadHeadFile => {
+            Some(ArtifactKind::FileSlice)
+        }
+        ToolName::SearchText => Some(ArtifactKind::SearchResults),
+        ToolName::ListChangedFiles => Some(ArtifactKind::ChangedFileList),
+        ToolName::ListFiles | ToolName::FindRelatedFiles | ToolName::FindTestsForFile => {
+            Some(ArtifactKind::FileList)
+        }
+        ToolName::ListImports => Some(ArtifactKind::ImportSummary),
+        ToolName::RecordFinding | ToolName::ChallengeFinding | ToolName::Finish => None,
+    }
+}
+
+fn evidence_revision_for_tool(tool: ToolName) -> EvidenceRevision {
+    match tool {
+        ToolName::ReadBaseFile => EvidenceRevision::Base,
+        ToolName::ReadHeadFile => EvidenceRevision::Head,
+        _ => EvidenceRevision::Review,
+    }
+}
+
+fn evidence_location(result: &ToolResultEnvelope, snapshot: &RepoSnapshot) -> EvidenceLocationV1 {
+    if let Some(path) = result
+        .data
+        .as_ref()
+        .and_then(|data| data.get("firstMatch"))
+        .and_then(|first_match| first_match.get("path"))
+        .and_then(|path| path.as_str())
+    {
+        return EvidenceLocationV1::SinglePath {
+            path: path.to_string(),
+        };
+    }
+    if let Some(path) = result
+        .data
+        .as_ref()
+        .and_then(|data| data.get("path"))
+        .and_then(|path| path.as_str())
+    {
+        return EvidenceLocationV1::SinglePath {
+            path: path.to_string(),
+        };
+    }
+    if result.tool_name.as_builtin() == Some(ToolName::ReadDiff) {
+        if let Some(file) = snapshot.manifest.changed_file_entries.first() {
+            return EvidenceLocationV1::SinglePath {
+                path: file.rel_path.display(),
+            };
+        }
+    }
+    EvidenceLocationV1::SinglePath {
+        path: ".".to_string(),
+    }
+}
+
+fn evidence_line_range(result: &ToolResultEnvelope) -> Option<LineRangeV1> {
+    if let Some(line_range) = result.data.as_ref().and_then(|data| data.get("lineRange")) {
+        let start_line = line_range.get("startLine")?.as_u64()? as usize;
+        let end_line = line_range.get("endLine")?.as_u64()? as usize;
+        if start_line > 0 && end_line >= start_line {
+            return Some(LineRangeV1 {
+                start_line,
+                end_line,
+            });
+        }
+    }
+    let line = result
+        .data
+        .as_ref()
+        .and_then(|data| data.get("firstMatch"))
+        .and_then(|first_match| first_match.get("line"))
+        .and_then(|line| line.as_u64())
+        .map(|line| line as usize);
+    line.filter(|value| *value > 0).map(|value| LineRangeV1 {
+        start_line: value,
+        end_line: value,
+    })
+}
+
+struct SearchMatchAnchor {
+    path: String,
+    line: usize,
+}
+
+fn parse_search_match(value: &str) -> Option<SearchMatchAnchor> {
+    let mut parts = value.splitn(3, ':');
+    let path = parts.next()?.to_string();
+    let line = parts.next()?.parse::<usize>().ok()?;
+    if path.is_empty() || line == 0 {
+        return None;
+    }
+    Some(SearchMatchAnchor { path, line })
 }
 
 #[derive(Debug)]
@@ -1368,6 +1982,13 @@ struct RecordFindingArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ChallengeFindingArgs {
+    finding_id: String,
+    rationale: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct FinishArgs {
     reason: Option<String>,
 }
@@ -1392,8 +2013,17 @@ pub(crate) fn validate_invocation(
         return Err((call.call_id, tool_id, ToolErrorCode::ToolNotAllowed));
     }
     let args = match builtin_name {
-        Some(ToolName::ReadDiff | ToolName::ListFiles) => ToolArgs::Empty,
-        Some(ToolName::ReadFile | ToolName::ReadHeadFile) => {
+        Some(ToolName::ListChangedFiles | ToolName::ReadDiff | ToolName::ListFiles) => {
+            ToolArgs::Empty
+        }
+        Some(
+            ToolName::ReadFile
+            | ToolName::ReadBaseFile
+            | ToolName::ReadHeadFile
+            | ToolName::FindRelatedFiles
+            | ToolName::FindTestsForFile
+            | ToolName::ListImports,
+        ) => {
             let parsed: ReadFileArgs = serde_json::from_str(&call.raw_arguments).map_err(|_| {
                 (
                     call.call_id.clone(),
@@ -1437,6 +2067,20 @@ pub(crate) fn validate_invocation(
                 claim: parsed.claim,
             }
         }
+        Some(ToolName::ChallengeFinding) => {
+            let parsed: ChallengeFindingArgs =
+                serde_json::from_str(&call.raw_arguments).map_err(|_| {
+                    (
+                        call.call_id.clone(),
+                        tool_id.clone(),
+                        ToolErrorCode::InvalidArgs,
+                    )
+                })?;
+            ToolArgs::ChallengeFinding {
+                finding_id: parsed.finding_id,
+                rationale: parsed.rationale,
+            }
+        }
         Some(ToolName::Finish) => {
             let parsed: FinishArgs = serde_json::from_str(&call.raw_arguments).map_err(|_| {
                 (
@@ -1449,7 +2093,6 @@ pub(crate) fn validate_invocation(
                 reason: parsed.reason.unwrap_or_else(|| "finished".to_string()),
             }
         }
-        Some(_) => return Err((call.call_id, tool_id, ToolErrorCode::UnknownTool)),
         None => {
             let parsed: Value = serde_json::from_str(&call.raw_arguments).map_err(|_| {
                 (

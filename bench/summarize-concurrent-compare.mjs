@@ -38,7 +38,7 @@ if (validRows.length) {
   const largest = validRows.at(-1);
   const report = largest.report;
   md += `## Decision\n\n`;
-  md += `At ${largest.sessions} sessions, the concurrent runtime completed the same ${report.concurrent.toolCalls} tool actions as the synchronous baseline, reduced full-repo search scans from ${report.sync.counters.searchScans} to ${report.concurrent.counters.searchScans}, and ran ${fmt(report.speedup, 2)}x faster in the release benchmark. `;
+  md += `At ${largest.sessions} sessions, the concurrent runtime completed the same ${report.concurrent.toolCalls} tool actions as the serial baseline, reduced full-repo search scans from ${report.sync.counters.searchScans} to ${report.concurrent.counters.searchScans}, and ran ${fmt(report.speedup, 2)}x faster in the release benchmark. `;
   md += `The captured process-tree peak was ${fmt(largest.peakRssMb, 2)} MB RSS for the compare process, including both sync and concurrent phases in one executable run.\n\n`;
 }
 

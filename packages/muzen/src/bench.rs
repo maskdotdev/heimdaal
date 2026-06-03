@@ -1,29 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::thread;
-use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 
-use crate::cli::BenchArgs;
+use crate::cli::{BenchArgs, BenchTerminalPolicy};
 use crate::contracts::*;
 use crate::repo::RepoContext;
-use crate::runtime::{log_bench_event, run_review, RuntimeReport};
-use crate::util::{timestamp_utc, DEFAULT_MODEL, SCHEMA_VERSION};
-
-pub(crate) fn run_bench(args: BenchArgs) -> Result<RuntimeReport> {
-    let job = bench_job(&args)?;
-    log_bench_event("after_job_build", &args.model, args.sessions, None);
-    let report = run_review(job, None)?;
-    log_bench_event("after_work", &args.model, args.sessions, Some(&report));
-    thread::sleep(Duration::from_millis(args.hold_ms));
-    log_bench_event("after_hold", &args.model, args.sessions, Some(&report));
-    println!("{}", serde_json::to_string_pretty(&report)?);
-    if !report.benchmark_valid {
-        bail!("benchmark gates failed: {:?}", report.benchmark_failures);
-    }
-    Ok(report)
-}
+use crate::util::{timestamp_utc, SCHEMA_VERSION};
 
 pub(crate) fn bench_job(args: &BenchArgs) -> Result<ReviewRunJobV1> {
     let root = fs::canonicalize(&args.repo)
@@ -31,22 +14,34 @@ pub(crate) fn bench_job(args: &BenchArgs) -> Result<ReviewRunJobV1> {
     let path_policy = PathPolicyV1::bench(args.max_file_kb, args.max_search_matches);
     let changed_files = synthetic_changed_files(&root, &path_policy)?;
     let personas = (0..args.sessions)
-        .map(|index| PersonaSpecV1 {
-            id: format!("bench-session-{index}"),
-            role: Role::for_index(index),
-            objective: format!(
-                "Review the materialized repo as {:?}. Gather concrete evidence with read-only tools and finish with a concise finding or no-finding rationale.",
-                Role::for_index(index)
-            ),
-            cwd: Some(PathBuf::from(".")),
-            model_profile_id: Some("bench-oai".to_string()),
-            allowed_tools: ToolMask::review_read_only(),
-            budget: AgentBudget {
-                max_turns: args.max_turns,
-                max_tool_calls: args.max_tool_calls,
-                max_prompt_tokens: 32_000,
-                max_output_tokens: args.max_output_tokens as u64,
-            },
+        .map(|index| {
+            let role = Role::for_index(index);
+            let mut allowed_tools = ToolMask::review_read_only();
+            let objective = match args.terminal_policy {
+                BenchTerminalPolicy::Normal => format!(
+                    "Review the materialized repo as {role:?}. Gather concrete evidence with read-only tools and finish with a concise finding or no-finding rationale."
+                ),
+                BenchTerminalPolicy::FindingRequired => {
+                    allowed_tools.finish = false;
+                    format!(
+                        "Review the materialized repo as {role:?}. Gather concrete evidence with read-only tools, then call record_finding exactly once with one concise evidence-backed benchmark finding. Do not finish with a no-finding rationale."
+                    )
+                }
+            };
+            PersonaSpecV1 {
+                id: format!("bench-session-{index}"),
+                role,
+                objective,
+                cwd: Some(PathBuf::from(".")),
+                model_profile_id: Some("bench-oai".to_string()),
+                allowed_tools,
+                budget: AgentBudget {
+                    max_turns: args.max_turns,
+                    max_tool_calls: args.max_tool_calls,
+                    max_prompt_tokens: 32_000,
+                    max_output_tokens: args.max_output_tokens as u64,
+                },
+            }
         })
         .collect();
 

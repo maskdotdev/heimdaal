@@ -1,4 +1,7 @@
+use std::env;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use anyhow::{bail, Context, Result};
 
 use crate::contracts::{RedactionMetadataV1, RedactionState};
 
@@ -40,4 +43,16 @@ pub(crate) fn redact_known_secrets(text: &str, secrets: &[&str]) -> String {
         }
     }
     redacted
+}
+
+pub(crate) fn resolve_credential_ref(ref_name: &str) -> Result<String> {
+    if ref_name == "env:OPENAI_API_KEY" || ref_name == "env:OAI_API_KEY" {
+        return env::var("OAI_API_KEY")
+            .or_else(|_| env::var("OPENAI_API_KEY"))
+            .context("OAI_API_KEY or OPENAI_API_KEY is required");
+    }
+    if let Some(name) = ref_name.strip_prefix("env:") {
+        return env::var(name).with_context(|| format!("{name} is required"));
+    }
+    bail!("unsupported credentialRef; MVP supports env:NAME refs only")
 }

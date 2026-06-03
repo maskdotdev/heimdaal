@@ -1,9 +1,7 @@
-use std::collections::HashMap;
 use std::ffi::{CString, OsStr};
 use std::fs;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Mutex;
 
 use anyhow::{anyhow, bail, Context, Result};
 
@@ -19,7 +17,6 @@ pub(crate) struct RepoContext {
     pub(crate) root: PathBuf,
     pub(crate) path_policy: PathPolicyV1,
     pub(crate) change: ChangeScopeV1,
-    pub(crate) file_cache: Mutex<HashMap<PathBuf, ArtifactId>>,
 }
 
 impl RepoContext {
@@ -37,7 +34,6 @@ impl RepoContext {
             root,
             path_policy,
             change,
-            file_cache: Mutex::new(HashMap::new()),
         })
     }
 

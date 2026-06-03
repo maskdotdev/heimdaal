@@ -26,6 +26,7 @@ pub(crate) struct FileManifest {
     pub(crate) by_path: HashMap<RepoPath, FileId>,
     pub(crate) files: Vec<FileMeta>,
     pub(crate) changed_files: Vec<FileId>,
+    pub(crate) changed_file_entries: Vec<ChangedFileMeta>,
     pub(crate) skipped: usize,
     pub(crate) bytes: u64,
 }
@@ -38,6 +39,12 @@ pub(crate) struct FileMeta {
     pub(crate) fingerprint: String,
     pub(crate) is_changed: bool,
     pub(crate) is_text_candidate: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ChangedFileMeta {
+    pub(crate) rel_path: RepoPath,
+    pub(crate) summary: String,
 }
 
 #[derive(Debug)]
@@ -84,6 +91,7 @@ impl RepoSnapshot {
         let mut files = Vec::new();
         let mut by_path = HashMap::new();
         let mut changed_files = Vec::new();
+        let changed_file_entries = changed_file_entries(change);
         let mut skipped = 0usize;
         let mut bytes = 0u64;
 
@@ -221,6 +229,7 @@ impl RepoSnapshot {
             by_path,
             files,
             changed_files,
+            changed_file_entries,
             skipped,
             bytes,
         });
@@ -314,6 +323,30 @@ fn changed_paths(change: &ChangeScopeV1) -> HashSet<String> {
         .filter_map(|file| file.new_path.as_ref().or(file.old_path.as_ref()))
         .filter_map(|path| path.to_str())
         .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn changed_file_entries(change: &ChangeScopeV1) -> Vec<ChangedFileMeta> {
+    change
+        .changed_files
+        .iter()
+        .filter_map(|file| {
+            let path = file.new_path.as_ref().or(file.old_path.as_ref())?;
+            let text = path.to_str()?;
+            let rel_path = RepoPath::parse(text).ok()?;
+            let status = match file.status {
+                ChangedFileStatus::Added => "Added",
+                ChangedFileStatus::Modified => "Modified",
+                ChangedFileStatus::Deleted => "Deleted",
+                ChangedFileStatus::Renamed => "Renamed",
+                ChangedFileStatus::Copied => "Copied",
+                ChangedFileStatus::TypeChanged => "TypeChanged",
+            };
+            Some(ChangedFileMeta {
+                summary: format!("{status} {}", rel_path.display()),
+                rel_path,
+            })
+        })
         .collect()
 }
 

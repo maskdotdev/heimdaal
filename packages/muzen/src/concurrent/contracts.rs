@@ -441,10 +441,23 @@ pub(crate) struct ToolInvocation {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ToolArgs {
     Empty,
-    ReadFile { path: RepoPath },
-    SearchText { query: String },
-    RecordFinding { title: String, claim: String },
-    Finish { reason: String },
+    ReadFile {
+        path: RepoPath,
+    },
+    SearchText {
+        query: String,
+    },
+    RecordFinding {
+        title: String,
+        claim: String,
+    },
+    ChallengeFinding {
+        finding_id: String,
+        rationale: String,
+    },
+    Finish {
+        reason: String,
+    },
     Raw(Value),
 }
 
@@ -525,6 +538,7 @@ pub enum ToolErrorCode {
     TooManyMatches,
     Timeout,
     Cancelled,
+    BudgetExceeded,
     QueueFull,
     RepoUnavailable,
     RedactionFailed,
@@ -672,6 +686,20 @@ pub struct ArtifactView {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SessionTerminalDiagnostic {
+    pub session_id: String,
+    pub completed: bool,
+    pub terminal_tool: Option<String>,
+    pub terminal_summary: Option<String>,
+    pub saw_diff: bool,
+    pub saw_file: bool,
+    pub saw_search: bool,
+    pub model_calls: usize,
+    pub tool_counts: ToolCounts,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConcurrentRunReport {
     pub runtime: &'static str,
     pub sessions: usize,
@@ -680,6 +708,7 @@ pub struct ConcurrentRunReport {
     pub tool_calls: usize,
     pub tool_counts: ToolCounts,
     pub findings: usize,
+    pub publishable_findings: usize,
     pub elapsed_ms: u64,
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -688,6 +717,7 @@ pub struct ConcurrentRunReport {
     pub artifact_bytes: usize,
     pub counters: ConcurrentCounters,
     pub tool_metrics: BTreeMap<ToolMetricKey, ToolMetricsSnapshot>,
+    pub terminal_diagnostics: Vec<SessionTerminalDiagnostic>,
     pub benchmark_valid: bool,
     pub benchmark_failures: Vec<String>,
 }

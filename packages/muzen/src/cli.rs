@@ -4,12 +4,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
-use crate::bench::run_bench;
-use crate::concurrent::bench::{run_compare, ConcurrentBenchArgs};
+use crate::bench::bench_job;
+use crate::concurrent::bench::{
+    run_compare, run_job_concurrent, run_job_concurrent_with_result, run_real_bench,
+    ConcurrentBenchArgs, ConcurrentRealBenchArgs,
+};
 use crate::contracts::*;
-use crate::runtime::{run_review, EventEmitter};
+use crate::events::EventEmitter;
 use crate::util::{redact_known_secrets, DEFAULT_MODEL, SCHEMA_VERSION};
 
 #[derive(Parser, Debug)]
@@ -26,14 +29,24 @@ pub(crate) enum Command {
     Run(RunArgs),
     /// Convenience benchmark wrapper that builds a ReviewRunJobV1 for a repo.
     Bench(BenchArgs),
-    /// Compare the synchronous MVP tool path against the async concurrent runtime.
+    /// Build the benchmark ReviewRunJobV1 JSON without executing it.
+    BenchJob(BenchArgs),
+    /// Compare a serial concurrent-owned baseline against the async concurrent runtime.
     CompareConcurrent(ConcurrentBenchArgs),
+    /// Run the async concurrent runtime against an OpenAI-compatible model.
+    BenchConcurrent(ConcurrentRealBenchArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
 pub(crate) struct RunArgs {
     #[arg(long, default_value = "-")]
     pub(crate) job: PathBuf,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, ValueEnum)]
+pub(crate) enum BenchTerminalPolicy {
+    Normal,
+    FindingRequired,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -67,6 +80,9 @@ pub(crate) struct BenchArgs {
 
     #[arg(long, default_value_t = 256)]
     pub(crate) max_output_tokens: u32,
+
+    #[arg(long, value_enum, default_value_t = BenchTerminalPolicy::Normal)]
+    pub(crate) terminal_policy: BenchTerminalPolicy,
 }
 
 pub(crate) fn run_json(args: RunArgs) -> Result<i32> {
@@ -84,12 +100,14 @@ pub(crate) fn run_json(args: RunArgs) -> Result<i32> {
         job.attempt,
         job.output_redaction.policy_id.clone(),
     ));
-    let report = run_review(job, Some(emitter))?;
-    Ok(if report.completed_sessions == report.sessions {
-        0
-    } else {
-        4
-    })
+    let output = run_job_concurrent_with_result(job, Some(emitter))?;
+    Ok(
+        if output.report.completed_sessions == output.report.sessions {
+            0
+        } else {
+            4
+        },
+    )
 }
 
 pub fn main_entry() {
@@ -108,7 +126,17 @@ pub(crate) fn run_main() -> Result<i32> {
     match cli.command {
         Command::Run(args) => run_json(args),
         Command::Bench(args) => {
-            let report = run_bench(args)?;
+            let hold_ms = args.hold_ms;
+            let job = bench_job(&args)?;
+            let report = run_job_concurrent(job)?;
+            std::thread::sleep(std::time::Duration::from_millis(hold_ms));
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            if !report.benchmark_valid {
+                bail!(
+                    "concurrent benchmark gates failed: {:?}",
+                    report.benchmark_failures
+                );
+            }
             if report.completed_sessions != report.sessions {
                 bail!(
                     "only {}/{} sessions completed",
@@ -118,10 +146,25 @@ pub(crate) fn run_main() -> Result<i32> {
             }
             Ok(0)
         }
+        Command::BenchJob(args) => {
+            let job = bench_job(&args)?;
+            println!("{}", serde_json::to_string_pretty(&job)?);
+            Ok(0)
+        }
         Command::CompareConcurrent(args) => {
             let report = run_compare(args)?;
             if !report.concurrent.benchmark_valid {
                 bail!("concurrent comparison proof gates failed");
+            }
+            Ok(0)
+        }
+        Command::BenchConcurrent(args) => {
+            let report = run_real_bench(args)?;
+            if !report.benchmark_valid {
+                bail!(
+                    "concurrent real benchmark gates failed: {:?}",
+                    report.benchmark_failures
+                );
             }
             Ok(0)
         }
