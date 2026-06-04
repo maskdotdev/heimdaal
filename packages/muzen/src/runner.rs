@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -13,11 +14,21 @@ use tokio_util::sync::CancellationToken;
 
 use crate::contracts::{AgentBudget, Role};
 use crate::reviewer::{
-    artifacts::ArtifactView, capabilities, paths, Cancellation, ChangeSpec, ChangedFileSpec,
-    ReviewEventRecord, ReviewEventSink, ReviewModel, ReviewModelRequest, ReviewModelTurn,
-    ReviewRunLimits, ReviewRunSummary, ReviewSessionSpec, ReviewToolCall, Run, RunSpec,
-    SnapshotPathPolicy, SnapshotReader, SnapshotSpec, TokenUsage,
+    artifacts::ArtifactView,
+    capabilities,
+    ids::ToolId,
+    paths,
+    runtime::RuntimeError,
+    runtime_events::{
+        EventSink as RuntimeEventSink, RuntimeEvent, RuntimeEventContext, RuntimeEventRecord,
+    },
+    Cancellation, ChangeSpec, ChangedFileSpec, ReviewEvent, ReviewEventRecord, ReviewEventSink,
+    ReviewModel, ReviewModelRequest, ReviewModelTurn, ReviewRunLimits, ReviewRunSummary,
+    ReviewSessionSpec, ReviewToolArtifact, ReviewToolCall, ReviewToolContext, ReviewToolHandler,
+    ReviewToolOutput, ReviewToolRegistry, Run, RunSpec, SnapshotPathPolicy, SnapshotReader,
+    SnapshotSpec, TokenUsage,
 };
+use crate::util::timestamp_utc;
 
 pub const RUNNER_PROTOCOL_VERSION: &str = "muzen.runner.v1";
 pub const RUNNER_NAME: &str = "muzen-runner";
@@ -64,11 +75,9 @@ pub fn run_main() -> Result<i32> {
     let cli = RunnerCli::parse();
     match cli.command {
         RunnerCommand::Stdio => {
-            let stdin = std::io::stdin();
-            let stdout = std::io::stdout();
-            let mut reader = std::io::BufReader::new(stdin.lock());
-            let mut writer = stdout.lock();
-            run_stdio(&mut reader, &mut writer)
+            let reader = std::io::BufReader::new(std::io::stdin());
+            let writer = std::io::stdout();
+            run_stdio_interactive(reader, writer)
         }
         RunnerCommand::Check => {
             println!("{}", serde_json::to_string_pretty(&runner_check())?);
@@ -102,6 +111,36 @@ where
             continue;
         }
         session.handle_line(line.trim_end(), writer)?;
+    }
+    Ok(0)
+}
+
+pub fn run_stdio_interactive<R, W>(reader: R, writer: W) -> Result<i32>
+where
+    R: BufRead + Send + 'static,
+    W: Write + Send + 'static,
+{
+    let transport = Arc::new(InteractiveTransport::new(reader, writer));
+    let mut session = RunnerStdioSession::default();
+    loop {
+        let frame = transport.read_frame()?;
+        let Some(frame) = frame else {
+            break;
+        };
+        match frame {
+            JsonRpcFrame::Request(request) => {
+                let response = session.handle_interactive_request(request, transport.clone())?;
+                transport.write_response(&response)?;
+            }
+            JsonRpcFrame::Response(response) => {
+                let error = JsonRpcResponse::error(
+                    response.id,
+                    JsonRpcError::protocol_error("runner received an unexpected JSON-RPC response"),
+                );
+                transport.write_response(&error)?;
+            }
+            JsonRpcFrame::Notification => {}
+        }
     }
     Ok(0)
 }
@@ -197,7 +236,7 @@ impl RunnerStdioSession {
                     Ok(params) => params,
                     Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
                 };
-                match execute_run_start(params) {
+                match execute_run_start(params, None) {
                     Ok(executed) => {
                         for event in &executed.events {
                             write_notification(writer, "event.review", json!(event))?;
@@ -218,6 +257,100 @@ impl RunnerStdioSession {
                     }
                 }
             }
+            "run.status" => {
+                let params = match parse_params::<RunLookupParams>(request.params) {
+                    Ok(params) => params,
+                    Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
+                };
+                let Some(stored) = self.reports.get(&params.run_id) else {
+                    return Ok(JsonRpcResponse::error(
+                        request.id,
+                        JsonRpcError::invalid_params(format!("unknown runId {}", params.run_id)),
+                    ));
+                };
+                Ok(JsonRpcResponse::success(
+                    request.id,
+                    json!(RunStatusResult {
+                        run_id: params.run_id,
+                        status: stored.status.clone(),
+                    }),
+                ))
+            }
+            "run.result" => {
+                let params = match parse_params::<RunLookupParams>(request.params) {
+                    Ok(params) => params,
+                    Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
+                };
+                let Some(stored) = self.reports.get(&params.run_id) else {
+                    return Ok(JsonRpcResponse::error(
+                        request.id,
+                        JsonRpcError::invalid_params(format!("unknown runId {}", params.run_id)),
+                    ));
+                };
+                Ok(JsonRpcResponse::success(
+                    request.id,
+                    json!(stored.result.clone()),
+                ))
+            }
+            "run.cancel" => self.handle_run_cancel(request),
+            "artifact.read" => self.handle_artifact_read(request),
+            "artifact.export" => self.handle_artifact_export(request),
+            "snapshot.readText" => self.handle_snapshot_read_text(request),
+            _ => Ok(JsonRpcResponse::error(
+                request.id,
+                JsonRpcError::method_not_found(format!("unknown method {}", request.method)),
+            )),
+        }
+    }
+
+    fn handle_interactive_request<T>(
+        &mut self,
+        request: JsonRpcRequest,
+        transport: Arc<T>,
+    ) -> Result<JsonRpcResponse>
+    where
+        T: RunnerCallbackTransport + 'static,
+    {
+        if !stateful_method(request.method.as_str()) {
+            return Ok(handle_request(request));
+        }
+        if request.jsonrpc != "2.0" {
+            return Ok(JsonRpcResponse::error(
+                request.id,
+                JsonRpcError::invalid_request("jsonrpc must be 2.0"),
+            ));
+        }
+        if request.method.as_str() != "run.start" {
+            return self.handle_stateful_request_without_notifications(request);
+        }
+        let params = match parse_params::<RunStartParams>(request.params) {
+            Ok(params) => params,
+            Err(error) => return Ok(JsonRpcResponse::error(request.id, error)),
+        };
+        let transport: Arc<dyn RunnerCallbackTransport> = transport;
+        match execute_run_start(params, Some(transport.clone())) {
+            Ok(executed) => {
+                let result = executed.result.clone();
+                transport.notify("run.finished", json!(result.clone()))?;
+                self.reports.insert(result.run_id.clone(), executed.stored);
+                Ok(JsonRpcResponse::success(request.id, json!(result)))
+            }
+            Err(error) => {
+                let runner_error = JsonRpcError::runner_error(error.to_string());
+                transport.notify(
+                    "run.failed",
+                    json!({"error": runner_error.message, "kind": "runner_error"}),
+                )?;
+                Ok(JsonRpcResponse::error(request.id, runner_error))
+            }
+        }
+    }
+
+    fn handle_stateful_request_without_notifications(
+        &mut self,
+        request: JsonRpcRequest,
+    ) -> Result<JsonRpcResponse> {
+        match request.method.as_str() {
             "run.status" => {
                 let params = match parse_params::<RunLookupParams>(request.params) {
                     Ok(params) => params,
@@ -429,7 +562,7 @@ fn write_response<W: Write>(writer: &mut W, response: &JsonRpcResponse) -> Resul
 
 fn write_notification<W: Write>(writer: &mut W, method: &str, params: Value) -> Result<()> {
     let notification = JsonRpcNotification {
-        jsonrpc: "2.0",
+        jsonrpc: "2.0".to_string(),
         method: method.to_string(),
         params,
     };
@@ -442,6 +575,173 @@ fn write_notification<W: Write>(writer: &mut W, method: &str, params: Value) -> 
         .flush()
         .context("failed to flush runner protocol notification")?;
     Ok(())
+}
+
+trait RunnerCallbackTransport: Send + Sync {
+    fn request(&self, method: &str, params: Value) -> Result<Value>;
+    fn notify(&self, method: &str, params: Value) -> Result<()>;
+}
+
+struct InteractiveTransport<R, W> {
+    state: Mutex<InteractiveTransportState<R, W>>,
+    next_request_id: AtomicU64,
+}
+
+struct InteractiveTransportState<R, W> {
+    reader: R,
+    writer: W,
+    line: String,
+}
+
+impl<R, W> InteractiveTransport<R, W>
+where
+    R: BufRead,
+    W: Write,
+{
+    fn new(reader: R, writer: W) -> Self {
+        Self {
+            state: Mutex::new(InteractiveTransportState {
+                reader,
+                writer,
+                line: String::new(),
+            }),
+            next_request_id: AtomicU64::new(1),
+        }
+    }
+
+    fn read_frame(&self) -> Result<Option<JsonRpcFrame>> {
+        let mut state = self.state.lock().expect("runner stdio lock poisoned");
+        state.read_frame()
+    }
+
+    fn write_response(&self, response: &JsonRpcResponse) -> Result<()> {
+        let mut state = self.state.lock().expect("runner stdio lock poisoned");
+        write_response(&mut state.writer, response)
+    }
+}
+
+impl<R, W> RunnerCallbackTransport for InteractiveTransport<R, W>
+where
+    R: BufRead + Send,
+    W: Write + Send,
+{
+    fn request(&self, method: &str, params: Value) -> Result<Value> {
+        let request_id = format!(
+            "runner-callback-{}",
+            self.next_request_id.fetch_add(1, Ordering::SeqCst)
+        );
+        let request_id_value = json!(request_id);
+        let mut state = self.state.lock().expect("runner stdio lock poisoned");
+        state.write_request(&request_id_value, method, params)?;
+        loop {
+            let Some(frame) = state.read_frame()? else {
+                anyhow::bail!("SDK closed stdio while waiting for {method} response");
+            };
+            match frame {
+                JsonRpcFrame::Response(response)
+                    if response.id == Some(request_id_value.clone()) =>
+                {
+                    if let Some(error) = response.error {
+                        anyhow::bail!(
+                            "SDK callback {method} failed: {} ({})",
+                            error.message,
+                            error
+                                .data
+                                .as_ref()
+                                .map(|data| data.kind.as_str())
+                                .unwrap_or("unknown")
+                        );
+                    }
+                    return Ok(response.result.unwrap_or(Value::Null));
+                }
+                JsonRpcFrame::Response(_) | JsonRpcFrame::Notification => {}
+                JsonRpcFrame::Request(request) => {
+                    let response = JsonRpcResponse::error(
+                        request.id,
+                        JsonRpcError::protocol_error(
+                            "runner cannot service nested SDK-to-runner requests during callback wait",
+                        ),
+                    );
+                    write_response(&mut state.writer, &response)?;
+                }
+            }
+        }
+    }
+
+    fn notify(&self, method: &str, params: Value) -> Result<()> {
+        let mut state = self.state.lock().expect("runner stdio lock poisoned");
+        write_notification(&mut state.writer, method, params)
+    }
+}
+
+impl<R, W> InteractiveTransportState<R, W>
+where
+    R: BufRead,
+    W: Write,
+{
+    fn read_frame(&mut self) -> Result<Option<JsonRpcFrame>> {
+        loop {
+            self.line.clear();
+            let bytes = self
+                .reader
+                .read_line(&mut self.line)
+                .context("failed to read runner protocol frame")?;
+            if bytes == 0 {
+                return Ok(None);
+            }
+            if self.line.trim().is_empty() {
+                continue;
+            }
+            return parse_jsonrpc_frame(self.line.trim_end()).map(Some);
+        }
+    }
+
+    fn write_request(&mut self, id: &Value, method: &str, params: Value) -> Result<()> {
+        let request = JsonRpcOutboundRequest {
+            jsonrpc: "2.0",
+            id: id.clone(),
+            method: method.to_string(),
+            params,
+        };
+        serde_json::to_writer(&mut self.writer, &request)
+            .context("failed to write runner callback request")?;
+        self.writer
+            .write_all(b"\n")
+            .context("failed to terminate runner callback request")?;
+        self.writer
+            .flush()
+            .context("failed to flush runner callback request")?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+enum JsonRpcFrame {
+    Request(JsonRpcRequest),
+    Response(JsonRpcResponse),
+    Notification,
+}
+
+fn parse_jsonrpc_frame(line: &str) -> Result<JsonRpcFrame> {
+    let value = serde_json::from_str::<Value>(line)
+        .with_context(|| format!("invalid JSON-RPC frame: {line}"))?;
+    if value.get("method").is_some() {
+        if value.get("id").is_some() {
+            Ok(JsonRpcFrame::Request(serde_json::from_value(value)?))
+        } else {
+            Ok(JsonRpcFrame::Notification)
+        }
+    } else {
+        Ok(JsonRpcFrame::Response(serde_json::from_value(value)?))
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct JsonRpcOutboundRequest {
+    jsonrpc: &'static str,
+    id: Value,
+    method: String,
+    params: Value,
 }
 
 fn parse_params<T>(params: Option<Value>) -> Result<T, JsonRpcError>
@@ -464,7 +764,7 @@ pub struct JsonRpcRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JsonRpcResponse {
-    pub jsonrpc: &'static str,
+    pub jsonrpc: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -475,7 +775,7 @@ pub struct JsonRpcResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JsonRpcNotification {
-    pub jsonrpc: &'static str,
+    pub jsonrpc: String,
     pub method: String,
     pub params: Value,
 }
@@ -483,7 +783,7 @@ pub struct JsonRpcNotification {
 impl JsonRpcResponse {
     fn success(id: Option<Value>, result: Value) -> Self {
         Self {
-            jsonrpc: "2.0",
+            jsonrpc: "2.0".to_string(),
             id,
             result: Some(result),
             error: None,
@@ -492,7 +792,7 @@ impl JsonRpcResponse {
 
     fn error(id: Option<Value>, error: JsonRpcError) -> Self {
         Self {
-            jsonrpc: "2.0",
+            jsonrpc: "2.0".to_string(),
             id,
             result: None,
             error: Some(error),
@@ -582,6 +882,27 @@ pub struct RunStartParams {
     pub sessions: Vec<RunSessionParams>,
     #[serde(default)]
     pub limits: Option<RunLimitParams>,
+    #[serde(default)]
+    pub model: Option<RunModelParams>,
+    #[serde(default)]
+    pub tools: Vec<RunToolParams>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunModelParams {
+    #[serde(default)]
+    pub callback: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunToolParams {
+    pub id: String,
+    pub description: String,
+    pub parameters: Value,
+    #[serde(default)]
+    pub cacheable: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -857,7 +1178,10 @@ fn default_role() -> Role {
     Role::Generalist
 }
 
-fn execute_run_start(params: RunStartParams) -> Result<ExecutedRun> {
+fn execute_run_start(
+    params: RunStartParams,
+    transport: Option<Arc<dyn RunnerCallbackTransport>>,
+) -> Result<ExecutedRun> {
     if let Some(protocol_version) = &params.protocol_version {
         if protocol_version != RUNNER_PROTOCOL_VERSION {
             anyhow::bail!("unsupported protocolVersion {protocol_version}");
@@ -898,22 +1222,67 @@ fn execute_run_start(params: RunStartParams) -> Result<ExecutedRun> {
     } else {
         params.sessions
     };
+    let callback_tool_ids = params
+        .tools
+        .iter()
+        .map(|tool| tool.id.clone())
+        .collect::<Vec<_>>();
     let session_specs = sessions
         .into_iter()
-        .map(run_session_spec)
+        .map(|session| run_session_spec(session, &callback_tool_ids))
         .collect::<Result<Vec<_>>>()?;
     let limits = ReviewRunLimits::standard(max_active_sessions, max_file_bytes, max_search_matches);
     let spec = RunSpec::single_snapshot(run_id.clone(), snapshot, session_specs, limits);
     let event_sink = Arc::new(RecordingReviewEventSink::default());
-    let model = Arc::new(DeterministicRunnerModel {
-        target_path,
-        search_query: "TODO|fn|class|export|pub".to_string(),
+    let streaming_sink = transport.as_ref().map(|transport| {
+        Arc::new(StreamingRunnerEventSink::new(transport.clone())) as Arc<dyn RuntimeEventSink>
     });
-    let run = Run::builder(spec)
-        .review_model(model)
-        .review_event_sink(event_sink.clone())
-        .build()
-        .map_err(|error| anyhow::anyhow!("{error}"))?;
+    let mut builder = Run::builder(spec);
+    let use_callback_model = params.model.as_ref().is_some_and(|model| model.callback);
+    if use_callback_model {
+        let transport = transport
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("callback model requires interactive stdio"))?;
+        builder = builder.review_model(Arc::new(CallbackReviewModel {
+            run_id: run_id.clone(),
+            transport,
+        }));
+    } else {
+        builder = builder.review_model(Arc::new(DeterministicRunnerModel {
+            target_path,
+            search_query: "TODO|fn|class|export|pub".to_string(),
+        }));
+    }
+    if !params.tools.is_empty() {
+        let transport = transport
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("callback tools require interactive stdio"))?;
+        let mut registry = ReviewToolRegistry::review_defaults()
+            .map_err(|error| anyhow::anyhow!("failed to create review tool registry: {error}"))?;
+        for tool in params.tools {
+            registry
+                .register_read_only_tool(
+                    &tool.id,
+                    tool.description,
+                    tool.parameters,
+                    tool.cacheable,
+                    Arc::new(CallbackReviewTool {
+                        run_id: run_id.clone(),
+                        transport: transport.clone(),
+                    }),
+                )
+                .map_err(|error| {
+                    anyhow::anyhow!("failed to register SDK tool {}: {error}", tool.id)
+                })?;
+        }
+        builder = builder.review_tool_registry(registry);
+    }
+    let run = if let Some(streaming_sink) = streaming_sink {
+        builder.event_sink(streaming_sink).build()
+    } else {
+        builder.review_event_sink(event_sink.clone()).build()
+    }
+    .map_err(|error| anyhow::anyhow!("{error}"))?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -928,7 +1297,10 @@ fn execute_run_start(params: RunStartParams) -> Result<ExecutedRun> {
     })
 }
 
-fn run_session_spec(params: RunSessionParams) -> Result<ReviewSessionSpec> {
+fn run_session_spec(
+    params: RunSessionParams,
+    callback_tool_ids: &[String],
+) -> Result<ReviewSessionSpec> {
     let budget = params.budget.map_or(
         AgentBudget {
             max_turns: 7,
@@ -953,6 +1325,10 @@ fn run_session_spec(params: RunSessionParams) -> Result<ReviewSessionSpec> {
         let capabilities = capabilities::CapabilitySet::review_read_only()
             .with_fs_scope(capabilities::FsScope::subtree(repo_path));
         spec = spec.with_capabilities(capabilities);
+    }
+    for tool_id in callback_tool_ids {
+        let tool_id = ToolId::parse(tool_id).map_err(|error| anyhow::anyhow!("{error}"))?;
+        spec = spec.grant_custom_read_only_tool(tool_id);
     }
     Ok(spec)
 }
@@ -1185,6 +1561,409 @@ impl ReviewModel for DeterministicRunnerModel {
     }
 }
 
+struct CallbackReviewModel {
+    run_id: String,
+    transport: Arc<dyn RunnerCallbackTransport>,
+}
+
+#[async_trait]
+impl ReviewModel for CallbackReviewModel {
+    async fn complete_review(
+        &self,
+        request: ReviewModelRequest,
+        _cancel: Cancellation,
+    ) -> crate::reviewer::runtime::RuntimeResult<ReviewModelTurn> {
+        let params = RunnerModelCompleteParams::from_request(&self.run_id, request);
+        let value = self
+            .transport
+            .request("model.complete", json!(params))
+            .map_err(runtime_error)?;
+        let result =
+            serde_json::from_value::<RunnerModelCompleteResult>(value).map_err(|error| {
+                RuntimeError::InvalidInput(format!("invalid model.complete result: {error}"))
+            })?;
+        let usage = result.usage.unwrap_or_default().into_token_usage();
+        if !result.tool_calls.is_empty() {
+            let calls = result
+                .tool_calls
+                .into_iter()
+                .map(|call| {
+                    let mut tool_call = ReviewToolCall::new(call.tool_id, call.arguments);
+                    if let Some(call_id) = call.call_id {
+                        tool_call = tool_call.with_call_id(call_id);
+                    }
+                    tool_call
+                })
+                .collect();
+            return Ok(ReviewModelTurn::ToolCalls { calls, usage });
+        }
+        Ok(ReviewModelTurn::Text {
+            content: result.content.unwrap_or_default(),
+            usage,
+        })
+    }
+}
+
+struct CallbackReviewTool {
+    run_id: String,
+    transport: Arc<dyn RunnerCallbackTransport>,
+}
+
+#[async_trait]
+impl ReviewToolHandler for CallbackReviewTool {
+    async fn execute_review_tool(
+        &self,
+        context: ReviewToolContext,
+        arguments: Value,
+        _cancel: Cancellation,
+    ) -> crate::reviewer::runtime::RuntimeResult<ReviewToolOutput> {
+        let params = RunnerToolExecuteParams {
+            protocol_version: RUNNER_PROTOCOL_VERSION.to_string(),
+            run_id: self.run_id.clone(),
+            session_id: context.session_id,
+            turn: context.turn,
+            call_id: context.call_id,
+            tool_id: context.tool_id,
+            snapshot_id: context.snapshot_id.0,
+            provider_resources: context
+                .provider_resources
+                .iter()
+                .map(|resource| resource.as_str().to_string())
+                .collect(),
+            arguments,
+        };
+        let value = self
+            .transport
+            .request("tool.execute", json!(params))
+            .map_err(runtime_error)?;
+        let result = serde_json::from_value::<RunnerToolExecuteResult>(value).map_err(|error| {
+            RuntimeError::InvalidInput(format!("invalid tool.execute result: {error}"))
+        })?;
+        Ok(ReviewToolOutput {
+            data: result.data,
+            artifact: result.artifact.map(|artifact| ReviewToolArtifact {
+                key: artifact.key,
+                content: artifact.content,
+            }),
+        })
+    }
+}
+
+struct StreamingRunnerEventSink {
+    transport: Arc<dyn RunnerCallbackTransport>,
+    next_seq: AtomicU64,
+}
+
+impl StreamingRunnerEventSink {
+    fn new(transport: Arc<dyn RunnerCallbackTransport>) -> Self {
+        Self {
+            transport,
+            next_seq: AtomicU64::new(1),
+        }
+    }
+}
+
+impl RuntimeEventSink for StreamingRunnerEventSink {
+    fn emit(&self, event: RuntimeEvent) {
+        self.emit_with_context(RuntimeEventContext::from_event(&event), event);
+    }
+
+    fn emit_with_context(&self, context: RuntimeEventContext, event: RuntimeEvent) {
+        let seq = self.next_seq.fetch_add(1, Ordering::SeqCst);
+        let runtime_record = RuntimeEventRecord {
+            seq,
+            timestamp_utc: timestamp_utc(),
+            context: context.clone(),
+            event: event.clone(),
+        };
+        let _ = self
+            .transport
+            .notify("event.runtime", json!(runtime_record));
+        let review_record = ReviewEventRecord {
+            seq,
+            timestamp_utc: timestamp_utc(),
+            run_id: context.run_id,
+            snapshot_id: context.snapshot_id,
+            session_id: context.session_id.map(|id| id.0),
+            turn: context.turn_id.map(|turn| turn.0),
+            tool_call_id: context.tool_call_id.map(|id| id.0),
+            artifact_id: context.artifact_id,
+            finding_id: context.finding_id,
+            event: review_event_from_runtime(&event),
+        };
+        let _ = self.transport.notify("event.review", json!(review_record));
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RunnerModelCompleteParams {
+    protocol_version: String,
+    run_id: String,
+    session_id: String,
+    role: Role,
+    objective: String,
+    snapshot_id: Option<String>,
+    model_profile_id: Option<String>,
+    turn: u32,
+    transcript: Vec<Value>,
+}
+
+impl RunnerModelCompleteParams {
+    fn from_request(run_id: &str, request: ReviewModelRequest) -> Self {
+        Self {
+            protocol_version: RUNNER_PROTOCOL_VERSION.to_string(),
+            run_id: run_id.to_string(),
+            session_id: request.session_id,
+            role: request.role,
+            objective: request.objective,
+            snapshot_id: request.snapshot_id.map(|snapshot_id| snapshot_id.0),
+            model_profile_id: request.model_profile_id,
+            turn: request.turn,
+            transcript: request
+                .transcript
+                .into_iter()
+                .map(runner_transcript_item)
+                .collect(),
+        }
+    }
+}
+
+fn runner_transcript_item(item: crate::reviewer::ReviewTranscriptItem) -> Value {
+    match item {
+        crate::reviewer::ReviewTranscriptItem::System { content } => {
+            json!({"kind": "system", "content": content})
+        }
+        crate::reviewer::ReviewTranscriptItem::User { content } => {
+            json!({"kind": "user", "content": content})
+        }
+        crate::reviewer::ReviewTranscriptItem::AssistantText { content } => {
+            json!({"kind": "assistant_text", "content": content})
+        }
+        crate::reviewer::ReviewTranscriptItem::AssistantToolCalls { calls } => json!({
+            "kind": "assistant_tool_calls",
+            "calls": calls.into_iter().map(|call| json!({
+                "callId": call.call_id,
+                "toolId": call.tool_id,
+                "arguments": call.arguments,
+            })).collect::<Vec<_>>()
+        }),
+        crate::reviewer::ReviewTranscriptItem::ToolResult {
+            call_id,
+            tool_id,
+            ok,
+            artifact_id,
+            data,
+            error_code,
+        } => json!({
+            "kind": "tool_result",
+            "callId": call_id,
+            "toolId": tool_id,
+            "ok": ok,
+            "artifactId": artifact_id,
+            "data": data,
+            "errorCode": error_code,
+        }),
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RunnerModelCompleteResult {
+    #[serde(default)]
+    content: Option<String>,
+    #[serde(default)]
+    tool_calls: Vec<RunnerModelToolCallResult>,
+    #[serde(default)]
+    usage: Option<RunnerTokenUsage>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RunnerModelToolCallResult {
+    #[serde(default)]
+    call_id: Option<String>,
+    tool_id: String,
+    #[serde(default)]
+    arguments: Value,
+}
+
+#[derive(Debug, Copy, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RunnerTokenUsage {
+    input_tokens: u64,
+    output_tokens: u64,
+    total_tokens: u64,
+}
+
+impl RunnerTokenUsage {
+    fn into_token_usage(self) -> TokenUsage {
+        TokenUsage {
+            input_tokens: self.input_tokens,
+            output_tokens: self.output_tokens,
+            total_tokens: self.total_tokens,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RunnerToolExecuteParams {
+    protocol_version: String,
+    run_id: String,
+    session_id: String,
+    turn: u32,
+    call_id: String,
+    tool_id: String,
+    snapshot_id: String,
+    provider_resources: Vec<String>,
+    arguments: Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RunnerToolExecuteResult {
+    #[serde(default)]
+    data: Option<Value>,
+    #[serde(default)]
+    artifact: Option<RunnerToolArtifactResult>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RunnerToolArtifactResult {
+    key: String,
+    content: String,
+}
+
+fn runtime_error(error: anyhow::Error) -> RuntimeError {
+    RuntimeError::InvalidInput(error.to_string())
+}
+
+fn review_event_from_runtime(event: &RuntimeEvent) -> ReviewEvent {
+    match event {
+        RuntimeEvent::JobStarted { snapshot_id } => ReviewEvent::RunStarted {
+            snapshot_id: snapshot_id.clone(),
+        },
+        RuntimeEvent::SnapshotStarted { snapshot_id } => ReviewEvent::SnapshotStarted {
+            snapshot_id: snapshot_id.clone(),
+        },
+        RuntimeEvent::RepoManifestCompleted {
+            files,
+            skipped,
+            bytes,
+            ms,
+        } => ReviewEvent::RepoManifestCompleted {
+            files: *files,
+            skipped: *skipped,
+            bytes: *bytes,
+            ms: *ms,
+        },
+        RuntimeEvent::SessionStarted { session_id } => ReviewEvent::SessionStarted {
+            session_id: session_id.0.clone(),
+        },
+        RuntimeEvent::ModelStarted {
+            session_id,
+            turn_id,
+        } => ReviewEvent::ModelStarted {
+            session_id: session_id.0.clone(),
+            turn: turn_id.0,
+        },
+        RuntimeEvent::ModelCompleted {
+            session_id,
+            turn_id,
+            tool_call_count,
+        } => ReviewEvent::ModelCompleted {
+            session_id: session_id.0.clone(),
+            turn: turn_id.0,
+            tool_call_count: *tool_call_count,
+        },
+        RuntimeEvent::ToolBatchStarted {
+            session_id,
+            turn_id,
+            count,
+        } => ReviewEvent::ToolBatchStarted {
+            session_id: session_id.0.clone(),
+            turn: turn_id.0,
+            count: *count,
+        },
+        RuntimeEvent::ToolCallCompleted {
+            call_id,
+            tool_name,
+            ok,
+            error_code,
+            ..
+        } => ReviewEvent::ToolCallCompleted {
+            call_id: call_id.0.clone(),
+            tool_id: tool_name.as_str().to_string(),
+            ok: *ok,
+            error_code: *error_code,
+        },
+        RuntimeEvent::ToolCallDenied {
+            call_id,
+            tool_name,
+            error_code,
+            reason,
+            ..
+        } => ReviewEvent::ToolCallDenied {
+            call_id: call_id.0.clone(),
+            tool_id: tool_name.as_str().to_string(),
+            error_code: *error_code,
+            reason: reason.clone(),
+        },
+        RuntimeEvent::ArtifactCreated {
+            artifact_id,
+            tool_call_id,
+            tool_name,
+            bytes,
+            content_hash,
+            ..
+        } => ReviewEvent::ArtifactCreated {
+            artifact_id: artifact_id.clone(),
+            tool_call_id: tool_call_id.0.clone(),
+            tool_id: tool_name.as_str().to_string(),
+            bytes: *bytes,
+            content_hash: content_hash.clone(),
+        },
+        RuntimeEvent::FindingRecorded {
+            finding_id,
+            session_id,
+            tool_call_id,
+        } => ReviewEvent::FindingRecorded {
+            finding_id: finding_id.clone(),
+            session_id: session_id.0.clone(),
+            tool_call_id: tool_call_id.0.clone(),
+        },
+        RuntimeEvent::SearchBatchCompleted {
+            searched_files,
+            skipped_files,
+            bytes_scanned,
+            ms,
+        } => ReviewEvent::SearchBatchCompleted {
+            searched_files: *searched_files,
+            skipped_files: *skipped_files,
+            bytes_scanned: *bytes_scanned,
+            ms: *ms,
+        },
+        RuntimeEvent::SessionFinished { session_id, status } => ReviewEvent::SessionFinished {
+            session_id: session_id.0.clone(),
+            status: status.clone(),
+        },
+        RuntimeEvent::SnapshotFinished {
+            snapshot_id,
+            sessions,
+            completed_sessions,
+        } => ReviewEvent::SnapshotFinished {
+            snapshot_id: snapshot_id.clone(),
+            sessions: *sessions,
+            completed_sessions: *completed_sessions,
+        },
+        RuntimeEvent::JobFinished { status } => ReviewEvent::RunFinished {
+            status: status.clone(),
+        },
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RunnerHandshakeResult {
@@ -1219,15 +1998,14 @@ pub fn runner_handshake() -> RunnerHandshakeResult {
                 "artifact.read".to_string(),
                 "artifact.export".to_string(),
                 "snapshot.readText".to_string(),
+                "model.complete".to_string(),
+                "tool.execute".to_string(),
                 "event.review".to_string(),
+                "event.runtime".to_string(),
                 "run.finished".to_string(),
                 "run.failed".to_string(),
             ],
-            planned_methods: vec![
-                "model.complete".to_string(),
-                "tool.execute".to_string(),
-                "event.runtime".to_string(),
-            ],
+            planned_methods: Vec::new(),
             transports: vec!["stdio-jsonl".to_string()],
         },
     }
@@ -1309,15 +2087,15 @@ pub fn protocol_schema() -> RunnerProtocolSchema {
             implemented("snapshot.readText", "Read captured snapshot text."),
         ],
         callbacks: vec![
-            reserved_runner_to_sdk(
+            implemented_runner_to_sdk(
                 "model.complete",
                 "Ask the SDK model adapter for one model turn.",
             ),
-            reserved_runner_to_sdk("tool.execute", "Ask the SDK to execute a host custom tool."),
+            implemented_runner_to_sdk("tool.execute", "Ask the SDK to execute a host custom tool."),
         ],
         notifications: vec![
             implemented_runner_to_sdk("event.review", "Emit one host-facing review event."),
-            reserved_runner_to_sdk("event.runtime", "Emit one advanced runtime event."),
+            implemented_runner_to_sdk("event.runtime", "Emit one advanced runtime event."),
             implemented_runner_to_sdk(
                 "run.finished",
                 "Notify that a run reached a terminal state.",
@@ -1339,15 +2117,6 @@ fn implemented(method: &'static str, summary: &'static str) -> RunnerMethodSchem
     }
 }
 
-fn reserved_runner_to_sdk(method: &'static str, summary: &'static str) -> RunnerMethodSchema {
-    RunnerMethodSchema {
-        method: method.to_string(),
-        direction: RunnerMessageDirection::RunnerToSdk,
-        status: RunnerMethodStatus::Reserved,
-        summary: summary.to_string(),
-    }
-}
-
 fn implemented_runner_to_sdk(method: &'static str, summary: &'static str) -> RunnerMethodSchema {
     RunnerMethodSchema {
         method: method.to_string(),
@@ -1359,9 +2128,25 @@ fn implemented_runner_to_sdk(method: &'static str, summary: &'static str) -> Run
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Result as IoResult, Write};
+    use std::sync::{Arc, Mutex};
+
     use serde_json::json;
 
     use super::*;
+
+    struct SharedWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for SharedWriter {
+        fn write(&mut self, bytes: &[u8]) -> IoResult<usize> {
+            self.0.lock().expect("writer lock").extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> IoResult<()> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn handshake_returns_protocol_version() {
@@ -1391,7 +2176,7 @@ mod tests {
     }
 
     #[test]
-    fn schema_marks_wired_run_methods_implemented_and_future_methods_reserved() {
+    fn schema_marks_wired_run_methods_and_callbacks_implemented() {
         let schema = protocol_schema();
 
         assert!(schema
@@ -1423,7 +2208,17 @@ mod tests {
             .callbacks
             .iter()
             .any(|method| method.method == "model.complete"
-                && method.status == RunnerMethodStatus::Reserved));
+                && method.status == RunnerMethodStatus::Implemented));
+        assert!(schema
+            .callbacks
+            .iter()
+            .any(|method| method.method == "tool.execute"
+                && method.status == RunnerMethodStatus::Implemented));
+        assert!(schema
+            .notifications
+            .iter()
+            .any(|method| method.method == "event.runtime"
+                && method.status == RunnerMethodStatus::Implemented));
     }
 
     #[test]
@@ -1628,6 +2423,111 @@ mod tests {
         );
         assert_eq!(cancel[0]["result"]["status"], "completed");
         assert_eq!(cancel[0]["result"]["cancelled"], false);
+    }
+
+    #[test]
+    fn interactive_stdio_runs_model_and_tool_callbacks() {
+        let repo = tempfile::tempdir().expect("temp repo");
+        std::fs::write(
+            repo.path().join("Cargo.toml"),
+            "[package]\nname = \"fixture\"\nversion = \"0.0.0\"\n",
+        )
+        .expect("fixture file");
+        let start = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "run.start",
+            "params": {
+                "protocolVersion": RUNNER_PROTOCOL_VERSION,
+                "runId": "interactive-run",
+                "repo": repo.path(),
+                "changedFiles": ["Cargo.toml"],
+                "model": {"callback": true},
+                "tools": [
+                    {
+                        "id": "host_context",
+                        "description": "Return host-supplied context.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "topic": {"type": "string"}
+                            },
+                            "required": ["topic"],
+                            "additionalProperties": false
+                        }
+                    }
+                ],
+                "sessions": [
+                    {
+                        "id": "callback-session",
+                        "role": "correctness",
+                        "objective": "Exercise SDK callbacks"
+                    }
+                ],
+                "limits": {"maxActiveSessions": 1}
+            }
+        });
+        let first_model = json!({
+            "jsonrpc": "2.0",
+            "id": "runner-callback-1",
+            "result": {
+                "toolCalls": [
+                    {"toolId": "read_diff", "arguments": {}},
+                    {"toolId": "read_file", "arguments": {"path": "Cargo.toml"}},
+                    {"toolId": "host_context", "arguments": {"topic": "sdk"}},
+                    {"toolId": "search_text", "arguments": {"query": "fixture"}}
+                ],
+                "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15}
+            }
+        });
+        let tool_result = json!({
+            "jsonrpc": "2.0",
+            "id": "runner-callback-2",
+            "result": {
+                "data": {"topic": "sdk", "message": "host context received"},
+                "artifact": {"key": "host-context", "content": "context artifact"}
+            }
+        });
+        let second_model = json!({
+            "jsonrpc": "2.0",
+            "id": "runner-callback-3",
+            "result": {
+                "toolCalls": [
+                    {"toolId": "finish", "arguments": {"reason": "callback test complete"}}
+                ],
+                "usage": {"inputTokens": 20, "outputTokens": 5, "totalTokens": 25}
+            }
+        });
+        let input = format!("{start}\n{first_model}\n{tool_result}\n{second_model}\n");
+        let reader = std::io::Cursor::new(input.into_bytes());
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let writer = SharedWriter(output.clone());
+
+        run_stdio_interactive(reader, writer).expect("interactive stdio");
+
+        let bytes = output.lock().expect("output lock").clone();
+        let values = parse_json_lines(&bytes);
+        assert!(values
+            .iter()
+            .any(|value| value.get("method") == Some(&json!("model.complete"))));
+        assert!(values
+            .iter()
+            .any(|value| value.get("method") == Some(&json!("tool.execute"))));
+        assert!(values
+            .iter()
+            .any(|value| value.get("method") == Some(&json!("event.runtime"))));
+        assert!(values
+            .iter()
+            .any(|value| value.get("method") == Some(&json!("event.review"))));
+        assert!(values
+            .iter()
+            .any(|value| value.get("method") == Some(&json!("run.finished"))));
+        let start_response = values
+            .iter()
+            .find(|value| value.get("id") == Some(&json!(1)))
+            .expect("start response");
+        assert_eq!(start_response["result"]["status"], "completed");
+        assert_eq!(start_response["result"]["summary"]["completedSessions"], 1);
     }
 
     fn send_jsonrpc(

@@ -627,7 +627,7 @@ impl ToolName {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, Serialize)]
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenUsage {
     pub input_tokens: u64,
