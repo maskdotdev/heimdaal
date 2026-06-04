@@ -1,0 +1,14 @@
+{
+  "name": "@muzen/sdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "TypeScript SDK for the Muzen review runner protocol.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "check": "tsc --noEmit"
+  }
+}

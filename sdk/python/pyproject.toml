@@ -1,0 +1,13 @@
+[project]
+name = "muzen"
+version = "0.0.0"
+description = "Python SDK for the Muzen review runner protocol."
+requires-python = ">=3.10"
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/openai/heimdaal"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["muzen*"]
