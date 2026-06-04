@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "muzen.runner.v1",
+  "transport": "newline-delimited JSON-RPC 2.0 over stdio",
+  "requests": [
+    {
+      "method": "runner.handshake",
+      "direction": "sdk_to_runner",
+      "status": "implemented",
+      "summary": "Negotiate protocol version and capabilities."
+    },
+    {
+      "method": "runner.check",
+      "direction": "sdk_to_runner",
+      "status": "implemented",
+      "summary": "Return local runner diagnostics."
+    },
+    {
+      "method": "runner.schema.export",
+      "direction": "sdk_to_runner",
+      "status": "implemented",
+      "summary": "Return protocol method metadata for SDK validation."
+    },
+    {
+      "method": "run.start",
+      "direction": "sdk_to_runner",
+      "status": "implemented",
+      "summary": "Start a review run."
+    },
+    {
+      "method": "run.cancel",
+      "direction": "sdk_to_runner",
+      "status": "implemented",
+      "summary": "Cancel an active review run."
+    },
+    {
+      "method": "run.status",
+      "direction": "sdk_to_runner",
+      "status": "implemented",
+      "summary": "Read active run status."
+    },
+    {
+      "method": "run.result",
+      "direction": "sdk_to_runner",
+      "status": "implemented",
+      "summary": "Read final run report."
+    },
+    {
+      "method": "artifact.read",
+      "direction": "sdk_to_runner",
+      "status": "implemented",
+      "summary": "Read one redacted or raw artifact."
+    },
+    {
+      "method": "artifact.export",
+      "direction": "sdk_to_runner",
+      "status": "implemented",
+      "summary": "Export artifacts using a policy."
+    },
+    {
+      "method": "snapshot.readText",
+      "direction": "sdk_to_runner",
+      "status": "implemented",
+      "summary": "Read captured snapshot text."
+    }
+  ],
+  "callbacks": [
+    {
+      "method": "model.complete",
+      "direction": "runner_to_sdk",
+      "status": "reserved",
+      "summary": "Ask the SDK model adapter for one model turn."
+    },
+    {
+      "method": "tool.execute",
+      "direction": "runner_to_sdk",
+      "status": "reserved",
+      "summary": "Ask the SDK to execute a host custom tool."
+    }
+  ],
+  "notifications": [
+    {
+      "method": "event.review",
+      "direction": "runner_to_sdk",
+      "status": "implemented",
+      "summary": "Emit one host-facing review event."
+    },
+    {
+      "method": "event.runtime",
+      "direction": "runner_to_sdk",
+      "status": "reserved",
+      "summary": "Emit one advanced runtime event."
+    },
+    {
+      "method": "run.finished",
+      "direction": "runner_to_sdk",
+      "status": "implemented",
+      "summary": "Notify that a run reached a terminal state."
+    },
+    {
+      "method": "run.failed",
+      "direction": "runner_to_sdk",
+      "status": "implemented",
+      "summary": "Notify that a run failed before producing a report."
+    }
+  ]
+}
