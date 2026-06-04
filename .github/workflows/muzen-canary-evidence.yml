@@ -1,0 +1,97 @@
+name: Muzen Canary Evidence
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: muzen-canary-evidence
+  cancel-in-progress: false
+
+jobs:
+  publish-canary-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+      MUZEN_REAL_PROVIDER_MODEL: ${{ vars.MUZEN_REAL_PROVIDER_MODEL }}
+      MUZEN_CANARY_SNAPSHOT_BASE_URI: ${{ secrets.MUZEN_CANARY_SNAPSHOT_BASE_URI }}
+      MUZEN_CANARY_ARTIFACT_BASE_URI: ${{ secrets.MUZEN_CANARY_ARTIFACT_BASE_URI }}
+      MUZEN_REMOTE_OBJECT_STORE_BEARER_TOKEN: ${{ secrets.MUZEN_REMOTE_OBJECT_STORE_BEARER_TOKEN }}
+      MUZEN_CANARY_EVIDENCE_DIR: bench/canary-evidence
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Build Muzen release binary
+        run: cargo build --release -p muzen
+
+      - name: Publish aggregate canary evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${OPENAI_API_KEY:?OPENAI_API_KEY secret is required}"
+          : "${MUZEN_CANARY_SNAPSHOT_BASE_URI:?MUZEN_CANARY_SNAPSHOT_BASE_URI secret is required}"
+          : "${MUZEN_CANARY_ARTIFACT_BASE_URI:?MUZEN_CANARY_ARTIFACT_BASE_URI secret is required}"
+
+          rm -rf "$MUZEN_CANARY_EVIDENCE_DIR"
+          mkdir -p "$MUZEN_CANARY_EVIDENCE_DIR"
+          target/release/muzen canary-workflow-provenance \
+            --output "$MUZEN_CANARY_EVIDENCE_DIR/workflow.json"
+
+          model="${MUZEN_REAL_PROVIDER_MODEL:-gpt-4.1-nano}"
+          publish_args=(
+            --output-dir "$MUZEN_CANARY_EVIDENCE_DIR"
+            --snapshot-base-uri "$MUZEN_CANARY_SNAPSHOT_BASE_URI"
+            --artifact-base-uri "$MUZEN_CANARY_ARTIFACT_BASE_URI"
+            --object-store-driver http
+            --model "$model"
+            --max-evidence-age-seconds 86400
+          )
+          if [[ -n "${OPENAI_BASE_URL:-}" ]]; then
+            publish_args+=(--provider-base-url "$OPENAI_BASE_URL")
+          fi
+
+          target/release/muzen canary-preflight "${publish_args[@]}" \
+            | tee "$MUZEN_CANARY_EVIDENCE_DIR/preflight.json"
+          target/release/muzen canary-publish "${publish_args[@]}"
+
+      - name: Verify published canary manifest
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          failure=0
+          target/release/muzen canary-status \
+            --manifest "$MUZEN_CANARY_EVIDENCE_DIR/manifest.json" \
+            --output "$MUZEN_CANARY_EVIDENCE_DIR/status.json" \
+            --max-evidence-age-seconds 86400 || failure=1
+          target/release/muzen canary-verify \
+            --manifest "$MUZEN_CANARY_EVIDENCE_DIR/manifest.json" \
+            --max-evidence-age-seconds 86400 || failure=1
+          target/release/muzen canary-proof \
+            --evidence-dir "$MUZEN_CANARY_EVIDENCE_DIR" \
+            --output "$MUZEN_CANARY_EVIDENCE_DIR/proof.json" \
+            --max-evidence-age-seconds 86400 \
+            --expected-repository "${GITHUB_REPOSITORY:-}" \
+            --expected-git-ref "${GITHUB_REF:-}" || failure=1
+          exit "$failure"
+
+      - name: Upload canary evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: muzen-canary-evidence
+          path: bench/canary-evidence
+          if-no-files-found: error
+          retention-days: 30
