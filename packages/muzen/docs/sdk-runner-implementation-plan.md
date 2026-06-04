@@ -86,7 +86,7 @@ muzen-runner check
 muzen-runner schema export
 ```
 
-The protocol must not expose private `concurrent::*` modules.
+The protocol must not expose private `runtime::*` modules.
 
 ## Phase 3: TypeScript SDK First
 

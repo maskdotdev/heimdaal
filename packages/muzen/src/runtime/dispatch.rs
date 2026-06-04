@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use crate::concurrent::contracts::{RuntimeEvent, RuntimeEventContext, RuntimeEventSink};
-use crate::concurrent::policy::PlannedRuntimeEvent;
 use crate::events::{EventEmitter, EventRecord};
+use crate::runtime::contracts::{RuntimeEvent, RuntimeEventContext, RuntimeEventSink};
+use crate::runtime::policy::PlannedRuntimeEvent;
 
 #[derive(Clone)]
 pub(crate) struct RuntimeEventDispatcher {
@@ -54,9 +54,9 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::*;
-    use crate::concurrent::contracts::{RuntimeEvent, RuntimeEventContext, SessionId};
     use crate::contracts::{EventLevel, EventType};
     use crate::events::{EventEmitterState, EventRecord};
+    use crate::runtime::contracts::{RuntimeEvent, RuntimeEventContext, SessionId};
 
     struct SharedWriter(Arc<Mutex<Vec<u8>>>);
 

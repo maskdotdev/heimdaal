@@ -2,11 +2,11 @@ use std::time::{Duration, Instant};
 
 use tokio_util::sync::CancellationToken;
 
-use crate::concurrent::contracts::*;
-use crate::concurrent::dispatch::RuntimeEventDispatcher;
-use crate::concurrent::model::ConcurrentModelClient;
-use crate::concurrent::policy::ReviewerPolicy;
 use crate::contracts::TokenUsage;
+use crate::runtime::contracts::*;
+use crate::runtime::dispatch::RuntimeEventDispatcher;
+use crate::runtime::model::ConcurrentModelClient;
+use crate::runtime::policy::ReviewerPolicy;
 
 pub(crate) struct ModelTurnRunner<'a> {
     policy: &'a ReviewerPolicy,

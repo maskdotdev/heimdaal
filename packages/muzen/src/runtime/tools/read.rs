@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use moka::future::Cache;
 
-use crate::concurrent::contracts::{stable_id, RuntimeError, RuntimeLimits, RuntimeResult};
-use crate::concurrent::repo::{FileMeta, RepoSnapshot};
+use crate::runtime::contracts::{stable_id, RuntimeError, RuntimeLimits, RuntimeResult};
+use crate::runtime::repo::{FileMeta, RepoSnapshot};
 
 use super::metrics::ConcurrentAtomicCounters;
 

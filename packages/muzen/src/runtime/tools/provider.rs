@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 
-use crate::concurrent::contracts::{
+use crate::runtime::contracts::{
     CacheStatus, RuntimeError, RuntimeResult, ToolArgs, ToolInvocation, ToolProviderId,
     ToolResultEnvelope,
 };

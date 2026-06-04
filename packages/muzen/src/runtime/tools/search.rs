@@ -9,9 +9,9 @@ use tokio::sync::OwnedSemaphorePermit;
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
-use crate::concurrent::contracts::*;
-use crate::concurrent::repo::RepoSnapshot;
 use crate::contracts::ToolName;
+use crate::runtime::contracts::*;
+use crate::runtime::repo::RepoSnapshot;
 
 use super::metrics::ConcurrentAtomicCounters;
 use super::redaction::Redactor;
@@ -250,7 +250,7 @@ impl SearchFileResult {
 
 fn scan_file(
     snapshot: &RepoSnapshot,
-    file_id: crate::concurrent::contracts::FileId,
+    file_id: crate::runtime::contracts::FileId,
     max_bytes: usize,
     needles: &[String],
     max_matches: usize,

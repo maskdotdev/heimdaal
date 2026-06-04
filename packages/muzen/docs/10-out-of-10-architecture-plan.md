@@ -231,7 +231,7 @@ Main architectural gaps:
   in-process host-tool fixtures now prove provider-resource allow/deny behavior.
   Remaining external-provider security gaps are broader real-provider contract
   gates.
-- `ConcurrentJobRuntime` now owns active-session scheduling and report
+- `JobRuntime` now owns active-session scheduling and report
   aggregation, while the per-session async loop lives behind `SessionRunner`.
   Reviewer-specific prompt/tool exposure, evidence readiness, terminal rules,
   retry behavior, evidence and session-budget tool-batch planning, session
@@ -282,7 +282,7 @@ merely a reasonable design direction.
 | Deep host-facing module interface | 9.98 | Public `Run`, `RunBuilder`, `RunSpec`, `ReviewRunLimits`, `ReviewSessionSpec`, `ReviewModel`, `ReviewToolRegistry`, `ReviewEventSink`, `RunReport`, `ReviewRunSummary`, public model/tool/event/artifact/snapshot adapters, host-facing snapshot storage/read helpers, host-facing redacted/raw artifact workflow facade through `RunReport::redacted_artifacts`, `RunReport::raw_artifacts`, and `ReviewArtifacts`, host-facing JSON-RPC provider read-only and network-read tool registration/grants, artifact-id/object-ref string accessors, artifact bundle value constructors, host-facing review-event JSONL adapter, explicit `runtime_events`, `model_adapters`, `tool_adapters`, `capabilities`, `metrics`, `ids`, `artifacts`, `paths`, `storage`, `canaries`, and `runtime` modules for advanced compatibility instead of root raw-event/model/tool/provider/helper/capability/metrics/summary/id/path/storage/runtime/canary re-exports; raw `RuntimeLimits` is now behind `ReviewRunLimits::from_runtime_limits`; `muzen-runner stdio` exposes the kernel through a stable SDK protocol with implemented model/tool callbacks and event streaming; `muzen canary-preflight`, `muzen canary-workflow-provenance`, `muzen canary-publish`, `muzen canary-manifest`, `muzen canary-verify`, `muzen canary-status`, and `muzen canary-proof` expose canary configuration, scheduled workflow provenance, publication, publication provenance, aggregate proof, per-evidence status summaries, status gates, and final scheduled proof-bundle validation to automation | Remaining local facade work is mostly advanced compatibility and migration tests that intentionally instantiate low-level ids/objects for schema, corruption, and forgery proof |
 | Immutable evidence | 9.98 | Snapshot ids, content hashes, captured text bytes, public `SnapshotReader`, `SnapshotReader::read_text_path`, public `SnapshotManifest`, host-facing memory/content-addressed/remote snapshot storage helpers, memory, content-addressed directory, remote object-store backing stores, HTTP remote object-store canary adapter, scheduled canary workflow scaffold with persisted schema-versioned `workflow.json`, `preflight.json`, `publication.json`, publish-owned `status.json`, and final `proof.json`, public snapshot storage validation/cleanup reports, schema-versioned `RemoteObjectStoreCanaryEvidence`, aggregate `CanaryEvidenceManifest`, structured `CanaryEvidenceStatusReport` with per-target remote object-store status summaries, structured `CanaryProofReport` validating child evidence, scheduled workflow provenance, expected workflow/job/repository/ref identity, exact run URL, per-file proof byte counts/BLAKE3 digests, preflight config, proof-artifact freshness against the manifest, explicit workflow artifact retention, snapshot remote-client put/read/remove/read-after-remove canary proof, artifact retention/object-store contracts including remote artifact object refs, memory-envelope, content-addressed, and remote-object public tests, stale/missing backing-object lifecycle proof, mutation-after-capture read/search tests | The scheduled workflow must publish a current passing proof bundle from a production object-store endpoint |
 | Capability security | 9.75 | `ToolAuthorizer`, effects denial tests, max-call denial tests, artifact access policy with per-artifact scopes, model-visible output policy, tool input policy, runtime authority policy, provider and provider-resource allowlist policies, raw export denial, `ToolCallDenied` events, JSON-RPC authority/provider/resource denial-before-transport tests, public in-process host-tool provider-resource allow/deny tests, public JSON-RPC provider-resource allow/deny tests through `Run`, public JSON-RPC network-read allow/deny tests through `Run` proving missing runtime network authority denies before transport, scheduled canary workflow scoped to read-only repository permissions | Broader real-provider contract gates are still incomplete |
-| Policy locality | 9.95 | `ReviewerPolicy` owns exposure, initial transcript construction, transcript compaction, transcript append item shape, evidence gate, evidence and session-budget tool-batch planning, planned batch counts, denial reasons, legacy session/model/tool/error event planning, lifecycle and tool-result runtime event planning, terminal tracking, terminal diagnostics, session state, retry choice; `SessionModelAccounting` owns model/token/cost accounting outside the loop; `RuntimeEventDispatcher` owns legacy/runtime event delivery; `ModelTurnRunner` owns model retry/await timing and model start/completion event emission; `ToolBatchRunner` owns guarded tool-batch scheduling, denial result construction, batch-start event emission, denied-result metrics, and result merge ordering; `ToolResultEffectProcessor` owns per-result tool side-effect ordering; `SessionFlow` owns session completion/cancellation/failure transitions; `SessionRunner` owns the per-session async loop behind a narrow `run_scope` interface while `ConcurrentJobRuntime` owns only scheduling and report aggregation | The remaining locality risk is smaller and specific: `SessionRunner` still owns transcript append timing and the high-level handoff between model turns, tool batches, and tool-result effects. This is appropriate orchestration today, but a future transcript/turn coordinator would be needed if those rules grow |
+| Policy locality | 9.95 | `ReviewerPolicy` owns exposure, initial transcript construction, transcript compaction, transcript append item shape, evidence gate, evidence and session-budget tool-batch planning, planned batch counts, denial reasons, legacy session/model/tool/error event planning, lifecycle and tool-result runtime event planning, terminal tracking, terminal diagnostics, session state, retry choice; `SessionModelAccounting` owns model/token/cost accounting outside the loop; `RuntimeEventDispatcher` owns legacy/runtime event delivery; `ModelTurnRunner` owns model retry/await timing and model start/completion event emission; `ToolBatchRunner` owns guarded tool-batch scheduling, denial result construction, batch-start event emission, denied-result metrics, and result merge ordering; `ToolResultEffectProcessor` owns per-result tool side-effect ordering; `SessionFlow` owns session completion/cancellation/failure transitions; `SessionRunner` owns the per-session async loop behind a narrow `run_scope` interface while `JobRuntime` owns only scheduling and report aggregation | The remaining locality risk is smaller and specific: `SessionRunner` still owns transcript append timing and the high-level handoff between model turns, tool batches, and tool-result effects. This is appropriate orchestration today, but a future transcript/turn coordinator would be needed if those rules grow |
 | Provider-neutral tool execution | 9.82 | `ToolProvider` trait, built-in/in-process/JSON-RPC providers, shared provider-output policy, provider metrics, provider/resource allowlists, host-facing provider-resource scoped custom-tool registration, host-facing JSON-RPC read-only and network-read provider registration through `ReviewToolRegistry` named registration values, provider/resource/effect grants through `ReviewSessionSpec`, provider resources propagated through `ReviewToolContext` and `JsonRpcToolRequest`, JSON-RPC artifact/output/authority/resource/cancellation limit tests, in-process and JSON-RPC provider-resource allow/deny public facade tests, public JSON-RPC network-read allow/deny facade tests, public HTTP JSON-RPC wire-envelope proof through `Run::builder`, queued/deduped search cancellation proof, post-tool/pre-transcript cancellation guard | Broader external-provider contract runs still need stronger coverage |
 | Provider-neutral model routing | 9.7 | `ModelRouter`, per-profile/client routing, `ModelApiProtocol` profile selection, Chat Completions and Responses clients, shared Chat/Responses tool exposure conversion, shared alias-table replay and parsing proof, SDK runner `model.complete` callback adapter, public `reviewer::canaries` two-protocol `OpenAiProviderCanaryConfig` / `ModelProviderCanaryReport` canary contract, schema-versioned `ModelProviderCanaryEvidence` with required-protocol validation and gate failures, aggregate `CanaryEvidenceManifest`, status-report required/reported/passed protocol summary, publication-report live-vs-reused provider evidence source, proof-report rejection of reused provider evidence, freshness-gated CLI `canary-preflight` configuration proof, freshness-gated CLI `canary-publish` evidence publication, freshness-gated CLI `canary-manifest` composition/gating, freshness-gated CLI `canary-verify` published-manifest proof, freshness-gated CLI `canary-proof` scheduled-bundle proof, scheduled canary workflow scaffold, `bench-concurrent --run-provider-canaries`, `bench-concurrent --provider-canary-report`, safe skipped-status proof for disabled or missing credentials, durable canary evidence JSON roundtrip proof, per-provider/profile/key/session limiter buckets, in-flight model cancellation proof | The scheduled workflow must actually run with credentials and publish a passing proof bundle; broader provider compatibility gates are incomplete |
 | Stable observability | 9.92 | `ReviewEventSink`, `ReviewEventRecord`, `ReviewEvent`, host-facing review-event JSONL export/load with schema-version validation, SDK runner `event.review`, `event.runtime`, `run.finished`, and `run.failed` notifications, `RuntimeEvent`, camelCase runtime payload JSON, `RuntimeEventContext`, `RuntimeEventDispatcher`, in-memory and bounded runtime sinks, runtime JSONL export/load with schema-version validation, migration reports, v0 contextless and v1 full-variant JSONL fixtures, contextless legacy event-log migration, policy-owned legacy session/model/tool/error event payloads, `ToolCallDenied` events, public facade review-event assertions for successful/denial/multi-snapshot/cancellation runs, and happy-path review-event JSONL roundtrip proof | Future schema versions must add fixtures when introduced |
@@ -343,7 +343,7 @@ A 10/10 `muzen` architecture must satisfy these criteria.
 9. Testability through interfaces
 
    The interface is the test surface. Public behavior should be testable
-   without reaching into private concurrent modules.
+   without reaching into private runtime modules.
 
 10. Migration without losing proof
 
@@ -920,7 +920,7 @@ Work:
 - Keep `ReviewRunJobV1` crate-private unless it is intentionally a public wire
   contract.
 - Add in-memory `EventSink` and `ArtifactStore` adapters for public tests.
-- Stop requiring tests to instantiate `ConcurrentJobRuntime` directly.
+- Stop requiring tests to instantiate `JobRuntime` directly.
 
 Exit gates:
 
@@ -1873,7 +1873,7 @@ Implemented state after queued/deduped search cancellation hardening:
 
 Implemented state after result-before-transcript cancellation hardening:
 
-- `ConcurrentJobRuntime` now checks cancellation immediately after guarded tool
+- `JobRuntime` now checks cancellation immediately after guarded tool
   batch execution and before evidence observation, terminal observation,
   runtime-event emission, report tool counts, or transcript appends consume a
   successful returned result. Cancelled provider error results still remain
@@ -2359,7 +2359,7 @@ Implemented state after policy-owned legacy tool event planning:
   inline. `ReviewerPolicy` now plans those legacy tool event payloads, including
   tool name, success/error status, error code, artifact summary/id, and finding
   id.
-- The previous shallow `concurrent::session` helper module was removed; its
+- The previous shallow `runtime::session` helper module was removed; its
   remaining event-summary/status behavior now lives with the policy that owns
   the legacy event record shape.
 - Runtime still owns side effects and orchestration: tool dispatch, finding
@@ -2433,7 +2433,7 @@ Implemented state after session model accounting extraction:
 
 - Runtime no longer owns separate mutable counters for model calls, successes,
   errors, retries, latency, token totals, priced/unpriced calls, or estimated
-  model cost. `concurrent::accounting::SessionModelAccounting` now owns that
+  model cost. `runtime::accounting::SessionModelAccounting` now owns that
   accounting and produces the `ModelMetricsSnapshot` and `TokenUsage` values
   consumed by `SessionReport`.
 - The session loop still owns async control flow, cancellation windows,
@@ -2455,9 +2455,9 @@ cargo build --release -p muzen
 
 Implemented state after runtime event dispatcher extraction:
 
-- `ConcurrentJobRuntime` no longer stores raw optional legacy and runtime event
+- `JobRuntime` no longer stores raw optional legacy and runtime event
   sinks or implements the optional dispatch checks inline.
-  `concurrent::dispatch::RuntimeEventDispatcher` now owns legacy
+  `runtime::dispatch::RuntimeEventDispatcher` now owns legacy
   `EventEmitter` delivery, structured `RuntimeEventSink` delivery, planned
   runtime-event delivery, and no-sink dropping behavior.
 - Runtime still owns event timing and event order: session lifecycle, model
@@ -2484,7 +2484,7 @@ Implemented state after tool-result effect processor extraction:
 - Runtime no longer owns the per-result sequence for evidence observation,
   terminal error tracking, finding recording, artifact lookup, legacy event
   emission, structured runtime event emission, tool-count updates, and
-  transcript appends. `concurrent::effects::ToolResultEffectProcessor` now owns
+  transcript appends. `runtime::effects::ToolResultEffectProcessor` now owns
   that deterministic ordering behind one batch interface.
 - The async session loop still owns cancellation windows, when a tool batch is
   handed to the processor, when terminal completion stops the loop, and when
@@ -2508,7 +2508,7 @@ cargo build --release -p muzen
 Implemented state after session flow extraction:
 
 - Runtime no longer mutates raw `completed`, `cancelled`, and `failed` booleans
-  inline. `concurrent::flow::SessionFlow` now owns state transitions for
+  inline. `runtime::flow::SessionFlow` now owns state transitions for
   pre-model cancellation, per-turn budget/cancellation checks, model error
   classification, model completion, post-tool successful-batch cancellation,
   terminal completion, and repeated terminal-denial failure.
@@ -2591,8 +2591,8 @@ cargo build --release -p muzen
 
 Implemented state after session runner extraction:
 
-- `ConcurrentJobRuntime` no longer owns the per-session async loop. It now
-  creates a `concurrent::session_loop::SessionRunner` for each scheduled
+- `JobRuntime` no longer owns the per-session async loop. It now
+  creates a `runtime::session_loop::SessionRunner` for each scheduled
   session, enforces the active-session semaphore, and aggregates
   `SessionReport`s into the run report.
 - `SessionRunner::run_scope` owns the per-session orchestration for session
@@ -2620,12 +2620,12 @@ cargo build --release -p muzen
 
 Implemented state after model-turn and tool-batch runner extraction:
 
-- `concurrent::model_turn::ModelTurnRunner` now owns model turn completion,
+- `runtime::model_turn::ModelTurnRunner` now owns model turn completion,
   retryable-error retry timing, attempt accounting inputs, elapsed-time
   measurement, and model start/completion event emission. It reports a compact
   `ModelTurnCompletion` or `ModelTurnFailure` to `SessionRunner`, which keeps
   model accounting and turn-flow decisions outside the model-await module.
-- `concurrent::tool_batch::ToolBatchRunner` now owns the guarded batch execution
+- `runtime::tool_batch::ToolBatchRunner` now owns the guarded batch execution
   path after a model emits tool calls. It asks `ReviewerPolicy` for the batch
   plan, emits the planned batch-start runtime event, turns denied calls into
   tool results with metrics, executes allowed calls through `ToolEngine`, and

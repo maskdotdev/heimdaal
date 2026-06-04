@@ -1,5 +1,5 @@
-use crate::concurrent::contracts::{ModelCostEstimate, ModelMetricsSnapshot};
 use crate::contracts::TokenUsage;
+use crate::runtime::contracts::{ModelCostEstimate, ModelMetricsSnapshot};
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct SessionModelAccounting {

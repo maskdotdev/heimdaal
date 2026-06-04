@@ -2,21 +2,21 @@ use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 
-use crate::concurrent::accounting::SessionModelAccounting;
-use crate::concurrent::contracts::*;
-use crate::concurrent::dispatch::RuntimeEventDispatcher;
-use crate::concurrent::effects::{ToolResultBatchState, ToolResultEffectProcessor};
-use crate::concurrent::flow::SessionFlow;
-use crate::concurrent::model::ConcurrentModelRouter;
-use crate::concurrent::model_turn::ModelTurnRunner;
-use crate::concurrent::policy::{
-    PlannedRuntimeEvent, ReviewerPolicy, SessionEvidence, SessionTerminal,
-};
-use crate::concurrent::repo::RepoSnapshot;
-use crate::concurrent::tool_batch::ToolBatchRunner;
-use crate::concurrent::tools::ToolEngine;
 use crate::contracts::{TokenUsage, ToolCounts};
 use crate::events::EventRecord;
+use crate::runtime::accounting::SessionModelAccounting;
+use crate::runtime::contracts::*;
+use crate::runtime::dispatch::RuntimeEventDispatcher;
+use crate::runtime::effects::{ToolResultBatchState, ToolResultEffectProcessor};
+use crate::runtime::flow::SessionFlow;
+use crate::runtime::model::ConcurrentModelRouter;
+use crate::runtime::model_turn::ModelTurnRunner;
+use crate::runtime::policy::{
+    PlannedRuntimeEvent, ReviewerPolicy, SessionEvidence, SessionTerminal,
+};
+use crate::runtime::repo::RepoSnapshot;
+use crate::runtime::tool_batch::ToolBatchRunner;
+use crate::runtime::tools::ToolEngine;
 
 #[derive(Clone)]
 pub(crate) struct SessionRunner {

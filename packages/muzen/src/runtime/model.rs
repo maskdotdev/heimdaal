@@ -11,13 +11,13 @@ use serde_json::{json, Value};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 
-use crate::concurrent::contracts::*;
-use crate::concurrent::policy::ReviewerPolicy;
-use crate::concurrent::tools::ToolRegistry;
 use crate::contracts::{
     AgentBudget, ModelApiProtocol, ModelProfileRefV1, ProviderKind, Role, TokenUsage,
     ToolCallingMode, ToolName,
 };
+use crate::runtime::contracts::*;
+use crate::runtime::policy::ReviewerPolicy;
+use crate::runtime::tools::ToolRegistry;
 use crate::util::{resolve_credential_ref, timestamp_utc};
 
 #[async_trait]
@@ -1459,8 +1459,8 @@ impl ResponsesUsage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::concurrent::tools::{CustomToolHandler, CustomToolOptions, CustomToolOutput};
     use crate::contracts::{AgentBudget, Role};
+    use crate::runtime::tools::{CustomToolHandler, CustomToolOptions, CustomToolOutput};
 
     #[test]
     fn openai_client_uses_supplied_credential_resolver() {
@@ -1963,7 +1963,7 @@ mod tests {
     impl CustomToolHandler for NoopCustomTool {
         async fn execute(
             &self,
-            _context: crate::concurrent::tools::CustomToolContext,
+            _context: crate::runtime::tools::CustomToolContext,
             _args: Value,
             _cancel: CancellationToken,
         ) -> RuntimeResult<CustomToolOutput> {

@@ -7,11 +7,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::concurrent::contracts::{
+use crate::contracts::ToolName;
+use crate::runtime::contracts::{
     ArtifactKey, LimitInfo, ProviderResourceId, RuntimeError, RuntimeResult, SessionId, SnapshotId,
     ToolCallId, ToolEffects, ToolId, ToolProviderId, TurnId,
 };
-use crate::contracts::ToolName;
 
 use super::catalog::{review_builtin_specs, BuiltinToolSpec};
 

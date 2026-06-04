@@ -49,11 +49,11 @@ This is the right direction for other engines because a host can expose differen
 
 1. Stable host API
 
-   Most concurrent modules are still `pub(crate)`. A real primitive needs a library API with stable types, constructors, and error contracts.
+   Most runtime modules are still `pub(crate)`. A real primitive needs a library API with stable types, constructors, and error contracts.
 
 2. Per-session model routing and BYOK
 
-   `ConcurrentJobRuntime` currently holds one `Arc<dyn ConcurrentModelClient>`. Other review engines will need a model router keyed by session/persona so each session can use a different provider profile, base URL, API key, and budget.
+   `JobRuntime` currently holds one `Arc<dyn ConcurrentModelClient>`. Other review engines will need a model router keyed by session/persona so each session can use a different provider profile, base URL, API key, and budget.
 
 3. Per-session cwd
 

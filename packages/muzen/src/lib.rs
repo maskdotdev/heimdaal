@@ -4,11 +4,11 @@ pub mod reviewer;
 pub mod runner;
 
 pub(crate) mod bench;
-pub(crate) mod concurrent;
 pub(crate) mod contracts;
 pub(crate) mod events;
 pub(crate) mod job;
 pub(crate) mod repo;
+pub(crate) mod runtime;
 pub(crate) mod util;
 
 #[cfg(test)]

@@ -8,19 +8,19 @@ use clap::Parser;
 use tokio_util::sync::CancellationToken;
 
 use crate::bench::{preferred_bench_file_score, synthetic_changed_files};
-use crate::concurrent::contracts::*;
-use crate::concurrent::dispatch::RuntimeEventDispatcher;
-use crate::concurrent::model::{
+use crate::contracts::*;
+use crate::events::EventEmitter;
+use crate::runtime::contracts::*;
+use crate::runtime::dispatch::RuntimeEventDispatcher;
+use crate::runtime::job_runtime::{JobRuntime, SessionSpec};
+use crate::runtime::model::{
     export_model_provider_canary_evidence, run_openai_provider_canaries, EnvCredentialResolver,
     MockReviewModel, ModelLimiter, ModelProviderCanaryEvidence, OpenAiChatCompletionsClient,
     OpenAiProviderCanaryConfig, StaticModelRouter,
 };
-use crate::concurrent::policy::ReviewerPolicy;
-use crate::concurrent::repo::RepoSnapshot;
-use crate::concurrent::runtime::{ConcurrentJobRuntime, ConcurrentSessionSpec};
-use crate::concurrent::tools::{ToolEngine, ToolRegistry};
-use crate::contracts::*;
-use crate::events::EventEmitter;
+use crate::runtime::policy::ReviewerPolicy;
+use crate::runtime::repo::RepoSnapshot;
+use crate::runtime::tools::{ToolEngine, ToolRegistry};
 
 #[derive(Parser, Debug, Clone)]
 pub(crate) struct ConcurrentBenchArgs {
@@ -219,7 +219,7 @@ pub(crate) fn run_real_bench(args: ConcurrentRealBenchArgs) -> Result<Concurrent
         Arc::new(ReviewerPolicy::new()),
         Arc::new(EnvCredentialResolver),
     )?);
-    let runtime = ConcurrentJobRuntime {
+    let runtime = JobRuntime {
         snapshot,
         model_router: Arc::new(StaticModelRouter::new(model)),
         tools,
@@ -230,7 +230,7 @@ pub(crate) fn run_real_bench(args: ConcurrentRealBenchArgs) -> Result<Concurrent
     };
     let target_path = target_path.to_string_lossy().into_owned();
     let session_specs = (0..args.sessions)
-        .map(|index| ConcurrentSessionSpec {
+        .map(|index| SessionSpec {
             scope: SessionScope {
                 id: SessionId(format!("concurrent-oai-session-{index}")),
                 role: Role::for_index(index),
@@ -329,7 +329,7 @@ fn run_concurrent(
         query.to_string(),
     ));
     let model_router = Arc::new(StaticModelRouter::new(model));
-    let runtime = ConcurrentJobRuntime {
+    let runtime = JobRuntime {
         snapshot,
         model_router,
         tools,
@@ -339,7 +339,7 @@ fn run_concurrent(
         events: RuntimeEventDispatcher::none(),
     };
     let session_specs = (0..sessions)
-        .map(|index| ConcurrentSessionSpec {
+        .map(|index| SessionSpec {
             scope: SessionScope {
                 id: SessionId(format!("parallel-session-{index}")),
                 role: Role::for_index(index),

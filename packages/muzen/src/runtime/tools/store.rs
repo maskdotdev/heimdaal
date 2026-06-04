@@ -3,14 +3,14 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use parking_lot::Mutex;
 
-use crate::concurrent::contracts::{
-    stable_id, ArtifactId, ArtifactKey, ArtifactView, SessionId, ToolCallId, ToolResultEnvelope,
-};
-use crate::concurrent::repo::RepoSnapshot;
 use crate::contracts::{
     ArtifactKind, EvidenceLocationV1, EvidenceRefV1, EvidenceRevision, FindingPublishability,
     FindingSeverity, FindingV1, LineRangeV1, ReportStatus, ToolName, ValidationStatus,
 };
+use crate::runtime::contracts::{
+    stable_id, ArtifactId, ArtifactKey, ArtifactView, SessionId, ToolCallId, ToolResultEnvelope,
+};
+use crate::runtime::repo::RepoSnapshot;
 
 #[derive(Debug, Default)]
 pub struct ConcurrentArtifactStore {

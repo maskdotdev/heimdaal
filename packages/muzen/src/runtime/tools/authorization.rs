@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use dashmap::DashMap;
 
-use crate::concurrent::contracts::{
+use crate::runtime::contracts::{
     stable_id, SessionId, ToolEffects, ToolErrorCode, ToolGrant, ToolId, ToolInvocation,
     ToolProviderId,
 };
@@ -181,12 +181,12 @@ fn effects_allow(required: ToolEffects, allowed: ToolEffects) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::concurrent::contracts::{
+    use crate::contracts::ToolName;
+    use crate::runtime::contracts::{
         CapabilitySet, FsScope, ProviderResourceId, ProviderResourceScope, SnapshotId, ToolArgs,
         ToolCallId, TurnId,
     };
-    use crate::concurrent::tools::registry::{ToolDefinition, ToolRegistry};
-    use crate::contracts::ToolName;
+    use crate::runtime::tools::registry::{ToolDefinition, ToolRegistry};
 
     #[test]
     fn authorizer_blocks_effects_outside_grant() {

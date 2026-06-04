@@ -1,8 +1,8 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::concurrent::contracts::*;
 use crate::contracts::{ToolCounts, ToolName};
+use crate::runtime::contracts::*;
 
 use super::registry::ToolRegistry;
 
@@ -41,7 +41,7 @@ struct FinishArgs {
 pub(crate) fn validate_invocation(
     session_id: SessionId,
     turn_id: TurnId,
-    call: crate::concurrent::contracts::ModelToolCall,
+    call: crate::runtime::contracts::ModelToolCall,
     capabilities: CapabilitySet,
     scope_key: ScopeKey,
     registry: &ToolRegistry,
@@ -177,7 +177,7 @@ pub(crate) fn count_tool_result(counts: &mut ToolCounts, result: &ToolResultEnve
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::concurrent::tools::ToolRegistry;
+    use crate::runtime::tools::ToolRegistry;
 
     #[test]
     fn validation_rejects_arguments_over_capability_input_limit() {

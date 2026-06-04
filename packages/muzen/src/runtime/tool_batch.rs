@@ -1,9 +1,9 @@
 use tokio_util::sync::CancellationToken;
 
-use crate::concurrent::contracts::*;
-use crate::concurrent::dispatch::RuntimeEventDispatcher;
-use crate::concurrent::policy::ReviewerPolicy;
-use crate::concurrent::tools::ToolEngine;
+use crate::runtime::contracts::*;
+use crate::runtime::dispatch::RuntimeEventDispatcher;
+use crate::runtime::policy::ReviewerPolicy;
+use crate::runtime::tools::ToolEngine;
 
 pub(crate) struct ToolBatchRunner<'a> {
     policy: &'a ReviewerPolicy,
@@ -84,11 +84,11 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
-    use crate::concurrent::repo::RepoSnapshot;
     use crate::contracts::{
         AgentBudget, ChangeKind, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus,
         PathPolicyV1, RenameDetection, Role, SnapshotMode, ToolName,
     };
+    use crate::runtime::repo::RepoSnapshot;
 
     #[derive(Default)]
     struct RecordingRuntimeSink {

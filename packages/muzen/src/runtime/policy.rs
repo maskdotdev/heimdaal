@@ -1,14 +1,14 @@
 use serde_json::{json, Value};
 
-use crate::concurrent::contracts::{
+use crate::contracts::{EventLevel, EventType, TokenUsage, ToolCounts, ToolName};
+use crate::events::EventRecord;
+use crate::runtime::contracts::{
     ArtifactView, CapabilitySet, ConversationItem, ModelOutputPolicy, ModelToolCall, RuntimeError,
     RuntimeEvent, RuntimeEventContext, SessionId, SessionScope, SessionTerminalDiagnostic,
     ToolCallId, ToolErrorCode, ToolId, ToolResultEnvelope, TurnId,
 };
-use crate::concurrent::repo::RepoSnapshot;
-use crate::concurrent::tools::ToolRegistry;
-use crate::contracts::{EventLevel, EventType, TokenUsage, ToolCounts, ToolName};
-use crate::events::EventRecord;
+use crate::runtime::repo::RepoSnapshot;
+use crate::runtime::tools::ToolRegistry;
 use crate::util::redact_known_secrets;
 
 #[derive(Debug, Clone, Default)]
@@ -969,7 +969,7 @@ fn result_event_context(
     session_id: &SessionId,
     turn_id: TurnId,
     result: &ToolResultEnvelope,
-    artifact_id: Option<crate::concurrent::contracts::ArtifactId>,
+    artifact_id: Option<crate::runtime::contracts::ArtifactId>,
 ) -> RuntimeEventContext {
     RuntimeEventContext {
         session_id: Some(session_id.clone()),
@@ -1007,12 +1007,12 @@ fn apply_model_output_policy(data: Value, policy: &ModelOutputPolicy) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::concurrent::contracts::{
+    use crate::contracts::{AgentBudget, Role};
+    use crate::runtime::contracts::{
         ArtifactId, CacheInfo, CacheStatus, LimitInfo, SessionId, SnapshotId, ToolCallId,
         ToolErrorInfo, ToolProviderId,
     };
-    use crate::concurrent::tools::ToolRegistry;
-    use crate::contracts::{AgentBudget, Role};
+    use crate::runtime::tools::ToolRegistry;
 
     #[test]
     fn exposure_policy_excludes_repo_wide_listing_after_diff_evidence() {

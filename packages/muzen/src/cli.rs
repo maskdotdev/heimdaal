@@ -10,10 +10,6 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::bench::bench_job;
-use crate::concurrent::bench::{
-    run_compare, run_job_concurrent, run_job_concurrent_with_events, run_real_bench,
-    ConcurrentBenchArgs, ConcurrentRealBenchArgs,
-};
 use crate::contracts::*;
 use crate::events::EventEmitter;
 use crate::reviewer::canaries::{
@@ -26,6 +22,10 @@ use crate::reviewer::canaries::{
 };
 use crate::reviewer::{
     HttpRemoteObjectClient, InMemoryRemoteArtifactObjectClient, InMemoryRemoteSnapshotObjectClient,
+};
+use crate::runtime::bench::{
+    run_compare, run_job_concurrent, run_job_concurrent_with_events, run_real_bench,
+    ConcurrentBenchArgs, ConcurrentRealBenchArgs,
 };
 use crate::util::{redact_known_secrets, timestamp_utc, DEFAULT_MODEL};
 

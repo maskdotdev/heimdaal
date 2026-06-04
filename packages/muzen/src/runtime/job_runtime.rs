@@ -5,21 +5,21 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-use crate::concurrent::contracts::*;
-use crate::concurrent::dispatch::RuntimeEventDispatcher;
-use crate::concurrent::model::ConcurrentModelRouter;
-use crate::concurrent::policy::ReviewerPolicy;
-use crate::concurrent::repo::RepoSnapshot;
-use crate::concurrent::session_loop::SessionRunner;
-use crate::concurrent::tools::ToolEngine;
 use crate::contracts::{TokenUsage, ToolCounts};
+use crate::runtime::contracts::*;
+use crate::runtime::dispatch::RuntimeEventDispatcher;
+use crate::runtime::model::ConcurrentModelRouter;
+use crate::runtime::policy::ReviewerPolicy;
+use crate::runtime::repo::RepoSnapshot;
+use crate::runtime::session_loop::SessionRunner;
+use crate::runtime::tools::ToolEngine;
 
 #[derive(Debug, Clone)]
-pub(crate) struct ConcurrentSessionSpec {
+pub(crate) struct SessionSpec {
     pub(crate) scope: SessionScope,
 }
 
-pub(crate) struct ConcurrentJobRuntime {
+pub(crate) struct JobRuntime {
     pub(crate) snapshot: Arc<RepoSnapshot>,
     pub(crate) model_router: Arc<dyn ConcurrentModelRouter>,
     pub(crate) tools: Arc<ToolEngine>,
@@ -29,18 +29,15 @@ pub(crate) struct ConcurrentJobRuntime {
     pub(crate) events: RuntimeEventDispatcher,
 }
 
-impl ConcurrentJobRuntime {
-    pub(crate) async fn run_sessions(
-        &self,
-        sessions: Vec<ConcurrentSessionSpec>,
-    ) -> ConcurrentRunReport {
+impl JobRuntime {
+    pub(crate) async fn run_sessions(&self, sessions: Vec<SessionSpec>) -> ConcurrentRunReport {
         self.run_sessions_with_cancel(sessions, CancellationToken::new())
             .await
     }
 
     pub(crate) async fn run_sessions_with_cancel(
         &self,
-        sessions: Vec<ConcurrentSessionSpec>,
+        sessions: Vec<SessionSpec>,
         cancel: CancellationToken,
     ) -> ConcurrentRunReport {
         let started = Instant::now();

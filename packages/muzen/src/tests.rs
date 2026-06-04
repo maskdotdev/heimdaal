@@ -8,8 +8,12 @@ use crate::bench::bench_job;
 use crate::cli::{
     BenchArgs, BenchTerminalPolicy, CanaryManifestArgs, CanaryVerifyArgs, Cli, Command,
 };
-use crate::concurrent::bench::optimization_failures;
-use crate::concurrent::contracts::{
+use crate::contracts::*;
+use crate::events::{EventEmitter, EventEmitterState};
+use crate::repo::RepoContext;
+use crate::reviewer::capabilities_from_mask;
+use crate::runtime::bench::optimization_failures;
+use crate::runtime::contracts::{
     ArtifactId as ConcurrentArtifactId, ArtifactKey, CacheInfo, CacheStatus, CapabilitySet,
     ConcurrentCounters, ConcurrentRunReport, ConversationItem, FsScope, LimitInfo,
     ModelCostEstimate, ModelToolCall, ModelTurn, ProviderResourceId, ProviderResourceScope,
@@ -17,27 +21,22 @@ use crate::concurrent::contracts::{
     ToolCallId, ToolEffects, ToolErrorCode, ToolGrant, ToolId, ToolMetricKey,
     ToolProviderHealthState, ToolProviderId, TurnId,
 };
-use crate::concurrent::dispatch::RuntimeEventDispatcher;
-use crate::concurrent::model::{
+use crate::runtime::dispatch::RuntimeEventDispatcher;
+use crate::runtime::job_runtime::{
+    benchmark_failures as runtime_benchmark_failures, JobRuntime, SessionSpec,
+};
+use crate::runtime::model::{
     openai_provider_canary_protocols, run_openai_provider_canaries, ConcurrentModelClient,
     EnvCredentialResolver, MockReviewModel, ModelProviderCanaryEvidence,
     OpenAiProviderCanaryConfig, StaticModelRouter,
 };
-use crate::concurrent::policy::ReviewerPolicy;
-use crate::concurrent::repo::RepoSnapshot;
-use crate::concurrent::runtime::{
-    benchmark_failures as concurrent_benchmark_failures, ConcurrentJobRuntime,
-    ConcurrentSessionSpec,
-};
-use crate::concurrent::tools::ToolEngine;
-use crate::concurrent::tools::{
+use crate::runtime::policy::ReviewerPolicy;
+use crate::runtime::repo::RepoSnapshot;
+use crate::runtime::tools::ToolEngine;
+use crate::runtime::tools::{
     CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOptions, CustomToolOutput,
     JsonRpcToolRequest, JsonRpcToolResponse, JsonRpcToolTransport, ToolRegistry,
 };
-use crate::contracts::*;
-use crate::events::{EventEmitter, EventEmitterState};
-use crate::repo::RepoContext;
-use crate::reviewer::capabilities_from_mask;
 use crate::util::DEFAULT_MODEL;
 use async_trait::async_trait;
 
@@ -51,7 +50,7 @@ mod suite {
         let item = ConversationItem::ToolResult {
             call_id: ToolCallId("tool-1".to_string()),
             name: ToolId::from(ToolName::ReadFile),
-            content: Box::new(crate::concurrent::contracts::ToolResultEnvelope {
+            content: Box::new(crate::runtime::contracts::ToolResultEnvelope {
                 ok: true,
                 tool_call_id: ToolCallId("tool-1".to_string()),
                 tool_name: ToolId::from(ToolName::ReadFile),
@@ -136,7 +135,7 @@ mod suite {
             benchmark_valid: false,
             benchmark_failures: Vec::new(),
         };
-        report.benchmark_failures = concurrent_benchmark_failures(&report);
+        report.benchmark_failures = runtime_benchmark_failures(&report);
         assert!(report
             .benchmark_failures
             .iter()
@@ -5929,7 +5928,7 @@ mod suite {
                 writer: Box::new(SharedWriter(Arc::clone(&output))),
             }),
         });
-        let runtime = ConcurrentJobRuntime {
+        let runtime = JobRuntime {
             snapshot,
             model_router: Arc::new(StaticModelRouter::new(Arc::new(MockReviewModel::new(
                 "README.md".to_string(),
@@ -5945,7 +5944,7 @@ mod suite {
             .enable_all()
             .build()
             .unwrap();
-        let report = tokio.block_on(runtime.run_sessions(vec![ConcurrentSessionSpec {
+        let report = tokio.block_on(runtime.run_sessions(vec![SessionSpec {
             scope: test_scope("session"),
         }]));
         assert_eq!(report.completed_sessions, 1);
@@ -6003,7 +6002,7 @@ mod suite {
         let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
         let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));
         let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
-        let runtime = ConcurrentJobRuntime {
+        let runtime = JobRuntime {
             snapshot,
             model_router: Arc::new(StaticModelRouter::new(Arc::new(PrematureTerminalModel))),
             tools,
@@ -6016,7 +6015,7 @@ mod suite {
             .enable_all()
             .build()
             .unwrap();
-        let report = tokio.block_on(runtime.run_sessions(vec![ConcurrentSessionSpec {
+        let report = tokio.block_on(runtime.run_sessions(vec![SessionSpec {
             scope: test_scope("session"),
         }]));
         assert_eq!(report.findings, 0);
@@ -6038,7 +6037,7 @@ mod suite {
         let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
         let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));
         let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
-        let runtime = ConcurrentJobRuntime {
+        let runtime = JobRuntime {
             snapshot,
             model_router: Arc::new(StaticModelRouter::new(Arc::new(EvidenceOnlyModel))),
             tools,
@@ -6051,7 +6050,7 @@ mod suite {
             .enable_all()
             .build()
             .unwrap();
-        let report = tokio.block_on(runtime.run_sessions(vec![ConcurrentSessionSpec {
+        let report = tokio.block_on(runtime.run_sessions(vec![SessionSpec {
             scope: test_scope_with_budget("session", 1, 8),
         }]));
         assert_eq!(report.completed_sessions, 0);
@@ -6076,7 +6075,7 @@ mod suite {
         let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
         let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));
         let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
-        let runtime = ConcurrentJobRuntime {
+        let runtime = JobRuntime {
             snapshot,
             model_router: Arc::new(StaticModelRouter::new(Arc::new(EvidenceOnlyModel))),
             tools,
@@ -6089,7 +6088,7 @@ mod suite {
             .enable_all()
             .build()
             .unwrap();
-        let report = tokio.block_on(runtime.run_sessions(vec![ConcurrentSessionSpec {
+        let report = tokio.block_on(runtime.run_sessions(vec![SessionSpec {
             scope: test_scope_with_budget("session", 4, 2),
         }]));
         assert_eq!(report.completed_sessions, 0);
@@ -6113,7 +6112,7 @@ mod suite {
         let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
         let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));
         let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
-        let runtime = ConcurrentJobRuntime {
+        let runtime = JobRuntime {
             snapshot,
             model_router: Arc::new(StaticModelRouter::new(Arc::new(MockReviewModel::new(
                 "README.md".to_string(),
@@ -6132,7 +6131,7 @@ mod suite {
             .build()
             .unwrap();
         let report = tokio.block_on(runtime.run_sessions_with_cancel(
-            vec![ConcurrentSessionSpec {
+            vec![SessionSpec {
                 scope: test_scope("session"),
             }],
             cancel,
@@ -6158,7 +6157,7 @@ mod suite {
         let event_sink = Arc::new(crate::reviewer::runtime_events::InMemoryEventSink::default());
         let runtime_event_sink: Arc<dyn crate::reviewer::runtime_events::EventSink> =
             event_sink.clone();
-        let runtime = ConcurrentJobRuntime {
+        let runtime = JobRuntime {
             snapshot,
             model_router: Arc::new(StaticModelRouter::new(Arc::new(CancellingModel {
                 parent_cancel: cancel.clone(),
@@ -6176,7 +6175,7 @@ mod suite {
             .unwrap();
 
         let report = tokio.block_on(runtime.run_sessions_with_cancel(
-            vec![ConcurrentSessionSpec {
+            vec![SessionSpec {
                 scope: test_scope("session"),
             }],
             cancel,
@@ -6263,7 +6262,7 @@ mod suite {
         let event_sink = Arc::new(crate::reviewer::runtime_events::InMemoryEventSink::default());
         let runtime_event_sink: Arc<dyn crate::reviewer::runtime_events::EventSink> =
             event_sink.clone();
-        let runtime = ConcurrentJobRuntime {
+        let runtime = JobRuntime {
             snapshot,
             model_router: Arc::new(StaticModelRouter::new(Arc::new(SingleExternalToolModel {
                 tool_id: tool_id.clone(),
@@ -6290,7 +6289,7 @@ mod suite {
             .unwrap();
 
         let report = tokio.block_on(runtime.run_sessions_with_cancel(
-            vec![ConcurrentSessionSpec {
+            vec![SessionSpec {
                 scope: test_scope_with_capabilities("session", capabilities),
             }],
             cancel,
@@ -6378,7 +6377,7 @@ mod suite {
         let event_sink = Arc::new(crate::reviewer::runtime_events::InMemoryEventSink::default());
         let runtime_event_sink: Arc<dyn crate::reviewer::runtime_events::EventSink> =
             event_sink.clone();
-        let runtime = ConcurrentJobRuntime {
+        let runtime = JobRuntime {
             snapshot,
             model_router: Arc::new(StaticModelRouter::new(Arc::new(
                 CancelAfterToolResultModel {
@@ -6400,7 +6399,7 @@ mod suite {
             .unwrap();
 
         let report = tokio.block_on(runtime.run_sessions_with_cancel(
-            vec![ConcurrentSessionSpec {
+            vec![SessionSpec {
                 scope: test_scope_with_capabilities("session", capabilities),
             }],
             cancel,
@@ -6568,7 +6567,7 @@ mod suite {
                 writer: Box::new(SharedWriter(Arc::clone(&output))),
             }),
         });
-        let runtime = ConcurrentJobRuntime {
+        let runtime = JobRuntime {
             snapshot,
             model_router: Arc::new(StaticModelRouter::new(Arc::new(FailThenMockModel::new(
                 1,
@@ -6584,7 +6583,7 @@ mod suite {
             .enable_all()
             .build()
             .unwrap();
-        let report = tokio.block_on(runtime.run_sessions(vec![ConcurrentSessionSpec {
+        let report = tokio.block_on(runtime.run_sessions(vec![SessionSpec {
             scope: test_scope("session"),
         }]));
         assert_eq!(report.completed_sessions, 0);
@@ -7173,7 +7172,7 @@ mod suite {
             context: CustomToolContext,
             args: serde_json::Value,
             _cancel: tokio_util::sync::CancellationToken,
-        ) -> crate::concurrent::contracts::RuntimeResult<CustomToolOutput> {
+        ) -> crate::runtime::contracts::RuntimeResult<CustomToolOutput> {
             Ok(CustomToolOutput {
                 data: Some(serde_json::json!({
                     "tool": context.tool_id.as_str(),
@@ -7202,7 +7201,7 @@ mod suite {
             context: CustomToolContext,
             _args: serde_json::Value,
             _cancel: tokio_util::sync::CancellationToken,
-        ) -> crate::concurrent::contracts::RuntimeResult<CustomToolOutput> {
+        ) -> crate::runtime::contracts::RuntimeResult<CustomToolOutput> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             self.parent_cancel.cancel();
             Ok(CustomToolOutput {
@@ -7225,7 +7224,7 @@ mod suite {
             _context: CustomToolContext,
             _args: serde_json::Value,
             _cancel: tokio_util::sync::CancellationToken,
-        ) -> crate::concurrent::contracts::RuntimeResult<CustomToolOutput> {
+        ) -> crate::runtime::contracts::RuntimeResult<CustomToolOutput> {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             Ok(CustomToolOutput::default())
         }
@@ -7344,7 +7343,7 @@ mod suite {
             _context: CustomToolContext,
             _args: serde_json::Value,
             _cancel: tokio_util::sync::CancellationToken,
-        ) -> crate::concurrent::contracts::RuntimeResult<CustomToolOutput> {
+        ) -> crate::runtime::contracts::RuntimeResult<CustomToolOutput> {
             let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
             self.max_seen.fetch_max(active, Ordering::SeqCst);
             tokio::time::sleep(std::time::Duration::from_millis(25)).await;
@@ -7362,7 +7361,7 @@ mod suite {
             _context: CustomToolContext,
             _args: serde_json::Value,
             _cancel: tokio_util::sync::CancellationToken,
-        ) -> crate::concurrent::contracts::RuntimeResult<CustomToolOutput> {
+        ) -> crate::runtime::contracts::RuntimeResult<CustomToolOutput> {
             panic!("intentional custom tool panic")
         }
     }
@@ -7460,7 +7459,7 @@ mod suite {
         let snapshot = RepoSnapshot::build(temp.path(), &policy, &change).unwrap();
         let limits = Arc::new(RuntimeLimits::standard(1, 64 * 1024, 20));
         let tools = Arc::new(ToolEngine::new(Arc::clone(&snapshot), Arc::clone(&limits)).unwrap());
-        let runtime = ConcurrentJobRuntime {
+        let runtime = JobRuntime {
             snapshot,
             model_router: Arc::new(StaticModelRouter::new(model)),
             tools,
@@ -7473,7 +7472,7 @@ mod suite {
             .enable_all()
             .build()
             .unwrap();
-        tokio.block_on(runtime.run_sessions(vec![ConcurrentSessionSpec {
+        tokio.block_on(runtime.run_sessions(vec![SessionSpec {
             scope: test_scope("session"),
         }]))
     }

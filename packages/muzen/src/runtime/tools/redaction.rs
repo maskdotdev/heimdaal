@@ -1,7 +1,7 @@
 use regex::Regex;
 use serde_json::Value;
 
-use crate::concurrent::contracts::{RuntimeError, RuntimeResult};
+use crate::runtime::contracts::{RuntimeError, RuntimeResult};
 
 #[derive(Debug)]
 pub(crate) struct Redactor {

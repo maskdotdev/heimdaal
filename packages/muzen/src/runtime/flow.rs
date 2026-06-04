@@ -1,4 +1,4 @@
-use crate::concurrent::contracts::RuntimeError;
+use crate::runtime::contracts::RuntimeError;
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub(crate) struct SessionFlow {

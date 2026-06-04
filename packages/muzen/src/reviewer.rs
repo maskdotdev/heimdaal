@@ -8,7 +8,8 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::concurrent::contracts::{
+pub use crate::contracts::{AgentBudget, Role, TokenUsage, ToolCounts};
+use crate::runtime::contracts::{
     ArtifactId, ArtifactKey, ArtifactView, CapabilitySet, ConcurrentCounters, ConcurrentRunReport,
     ConversationItem, FsScope, LimitInfo, ModelCostEstimate, ModelMetricsSnapshot, ModelToolCall,
     ModelTurn, ProviderResourceId, ProviderResourceScope, RepoPath, RuntimeError, RuntimeEvent,
@@ -18,29 +19,20 @@ use crate::concurrent::contracts::{
     ToolMetricKey, ToolMetricsSnapshot, ToolProviderHealthSnapshot, ToolProviderHealthState,
     ToolProviderId, TurnId,
 };
-use crate::concurrent::dispatch::RuntimeEventDispatcher;
-use crate::concurrent::model::{
+use crate::runtime::dispatch::RuntimeEventDispatcher;
+use crate::runtime::model::{
     openai_provider_canary_protocols, ConcurrentModelClient as RuntimeModelClient,
     ConcurrentModelRouter as RuntimeModelRouter, EnvCredentialResolver, ModelLimiter,
     ModelProviderCanaryEvidence, ModelProviderCanaryGate, ModelProviderCanaryStatus,
     ProfileModelRouter, StaticModelRouter,
 };
-use crate::concurrent::tools::{
+use crate::runtime::tools::{
     ConcurrentArtifactStore as RuntimeArtifactStore, CustomToolArtifact, CustomToolContext,
     CustomToolHandler, CustomToolOptions, CustomToolOutput, JsonRpcToolRegistration,
     JsonRpcToolTransport, ToolRegistry as RuntimeToolRegistry,
 };
-pub use crate::contracts::{AgentBudget, Role, TokenUsage, ToolCounts};
 pub use tokio_util::sync::CancellationToken as Cancellation;
 
-use crate::concurrent::contracts::stable_id;
-pub use crate::concurrent::policy::ReviewerPolicy;
-use crate::concurrent::repo::{remote_content_addressed_uri, RepoSnapshot, SnapshotContentRef};
-use crate::concurrent::runtime::{
-    benchmark_failures as concurrent_benchmark_failures, ConcurrentJobRuntime,
-    ConcurrentSessionSpec,
-};
-use crate::concurrent::tools::ToolEngine;
 use crate::contracts::{
     ChangeKind as ContractChangeKind, ChangeScopeV1, ChangedFileEntryV1,
     ChangedFileStatus as ContractChangedFileStatus, EventLevel, EventType, FindingV1,
@@ -50,23 +42,30 @@ use crate::contracts::{
 };
 use crate::events::{EventEmitter, EventRecord};
 use crate::job::{effective_personas, tool_allowed, validate_job};
+use crate::runtime::contracts::stable_id;
+use crate::runtime::job_runtime::{
+    benchmark_failures as runtime_benchmark_failures, JobRuntime, SessionSpec,
+};
+pub use crate::runtime::policy::ReviewerPolicy;
+use crate::runtime::repo::{remote_content_addressed_uri, RepoSnapshot, SnapshotContentRef};
+use crate::runtime::tools::ToolEngine;
 use crate::util::{timestamp_utc, SCHEMA_VERSION};
 
 pub mod model_adapters {
-    pub use crate::concurrent::contracts::{ModelCostEstimate, ModelMetricsSnapshot};
-    pub use crate::concurrent::model::{
+    pub use crate::runtime::contracts::{ModelCostEstimate, ModelMetricsSnapshot};
+    pub use crate::runtime::model::{
         ConcurrentModelClient as ModelClient, ConcurrentModelRouter as ModelRouter,
         CredentialResolver, EnvCredentialResolver, ModelLimiter, StaticModelRouter,
     };
 }
 
 pub mod tool_adapters {
-    pub use crate::concurrent::contracts::{
+    pub use crate::runtime::contracts::{
         ProviderResourceId, ProviderResourceScope, ToolErrorCode, ToolErrorInfo, ToolMetricKey,
         ToolMetricsSnapshot, ToolProviderHealthSnapshot, ToolProviderHealthState, ToolProviderId,
     };
-    pub use crate::concurrent::tools::ConcurrentArtifactStore as ArtifactStore;
-    pub use crate::concurrent::tools::{
+    pub use crate::runtime::tools::ConcurrentArtifactStore as ArtifactStore;
+    pub use crate::runtime::tools::{
         CustomToolArtifact, CustomToolContext, CustomToolHandler, CustomToolOptions,
         CustomToolOutput, HttpJsonRpcToolTransport, JsonRpcToolRegistration, JsonRpcToolRequest,
         JsonRpcToolResponse, JsonRpcToolTransport, ToolAliasTable, ToolDefinition, ToolRegistry,
@@ -75,35 +74,35 @@ pub mod tool_adapters {
 }
 
 pub mod capabilities {
-    pub use crate::concurrent::contracts::{
+    pub use crate::runtime::contracts::{
         ArtifactAccessPolicy, CapabilitySet, FsScope, ModelOutputPolicy, RuntimeAuthorityPolicy,
         ScopeKey, ToolEffects, ToolGrant, ToolInputPolicy,
     };
 }
 
 pub mod metrics {
-    pub use crate::concurrent::contracts::{
+    pub use crate::runtime::contracts::{
         CacheInfo, CacheStatus, ConcurrentCounters, ConcurrentRunReport, LimitInfo,
         SnapshotMetricsSnapshot,
     };
 }
 
 pub mod ids {
-    pub use crate::concurrent::contracts::{
+    pub use crate::runtime::contracts::{
         ArtifactId, EvidenceId, SessionId, SnapshotId, ToolCallId, ToolId,
     };
 }
 
 pub mod artifacts {
-    pub use crate::concurrent::contracts::{ArtifactId, ArtifactKey, ArtifactView, EvidenceId};
+    pub use crate::runtime::contracts::{ArtifactId, ArtifactKey, ArtifactView, EvidenceId};
 }
 
 pub mod paths {
-    pub use crate::concurrent::contracts::RepoPath;
+    pub use crate::runtime::contracts::RepoPath;
 }
 
 pub mod storage {
-    pub use crate::concurrent::contracts::{
+    pub use crate::runtime::contracts::{
         SnapshotCaptureStatus, SnapshotObjectStore, SnapshotStorageMode, SnapshotStoragePolicy,
     };
 
@@ -118,14 +117,14 @@ pub mod storage {
 }
 
 pub mod canaries {
-    pub use crate::concurrent::model::{
+    pub use crate::contracts::ModelApiProtocol;
+    pub use crate::runtime::model::{
         export_model_provider_canary_evidence, load_model_provider_canary_evidence,
         openai_provider_canary_protocols, run_openai_provider_canaries, CredentialResolver,
         EnvCredentialResolver, ModelProviderCanaryEvidence, ModelProviderCanaryEvidenceExport,
         ModelProviderCanaryGate, ModelProviderCanaryReport, ModelProviderCanaryStatus,
         OpenAiProviderCanaryConfig, MODEL_PROVIDER_CANARY_EVIDENCE_SCHEMA_VERSION,
     };
-    pub use crate::contracts::ModelApiProtocol;
 
     pub use super::{
         export_canary_evidence_manifest, export_remote_object_store_canary_evidence,
@@ -142,7 +141,7 @@ pub mod canaries {
 }
 
 pub mod runtime {
-    pub use crate::concurrent::contracts::{RuntimeError, RuntimeLimits, RuntimeResult};
+    pub use crate::runtime::contracts::{RuntimeError, RuntimeLimits, RuntimeResult};
 }
 
 #[derive(Debug, Clone)]
@@ -1518,7 +1517,7 @@ impl Run {
                     snapshot_id: shard.snapshot_handle.snapshot_id.clone(),
                 });
             }
-            let runtime = ConcurrentJobRuntime {
+            let runtime = JobRuntime {
                 snapshot: Arc::clone(&shard.snapshot),
                 model_router: Arc::clone(&self.model_router),
                 tools: Arc::clone(&shard.tools),
@@ -1533,7 +1532,7 @@ impl Run {
             let session_specs = shard
                 .sessions
                 .into_iter()
-                .map(|scope| ConcurrentSessionSpec { scope })
+                .map(|scope| SessionSpec { scope })
                 .collect::<Vec<_>>();
             let summary = runtime
                 .run_sessions_with_cancel(session_specs, cancel.clone())
@@ -2088,7 +2087,7 @@ fn merge_run_summaries(mut summaries: Vec<ConcurrentRunReport>) -> ConcurrentRun
             .cmp(&right.snapshot_id.0)
             .then(left.sessions.cmp(&right.sessions))
     });
-    merged.benchmark_failures = concurrent_benchmark_failures(&merged);
+    merged.benchmark_failures = runtime_benchmark_failures(&merged);
     merged.benchmark_valid = merged.benchmark_failures.is_empty();
     merged
 }
@@ -5414,8 +5413,8 @@ pub mod runtime_events {
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
     use std::sync::Mutex;
 
-    use crate::concurrent::contracts::{RuntimeError, RuntimeResult};
-    pub use crate::concurrent::contracts::{
+    use crate::runtime::contracts::{RuntimeError, RuntimeResult};
+    pub use crate::runtime::contracts::{
         RuntimeEvent, RuntimeEventContext, RuntimeEventRecord, RuntimeEventSink as EventSink,
         TurnId,
     };

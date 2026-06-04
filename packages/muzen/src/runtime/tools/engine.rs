@@ -11,9 +11,9 @@ use serde_json::json;
 use tokio::sync::{Mutex as TokioMutex, Notify, OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 
-use crate::concurrent::contracts::*;
-use crate::concurrent::repo::RepoSnapshot;
 use crate::contracts::{ByteRangeV1, EvidenceRefV1, ToolName};
+use crate::runtime::contracts::*;
+use crate::runtime::repo::RepoSnapshot;
 use crate::util::redaction_none;
 
 use super::authorization::ToolAuthorizer;
@@ -130,7 +130,7 @@ impl ToolEngine {
         &self,
         scope: SessionScope,
         turn_id: TurnId,
-        calls: Vec<crate::concurrent::contracts::ModelToolCall>,
+        calls: Vec<crate::runtime::contracts::ModelToolCall>,
         cancel: CancellationToken,
     ) -> Vec<ToolResultEnvelope> {
         if calls.len() > self.limits.max_tool_calls_per_turn {

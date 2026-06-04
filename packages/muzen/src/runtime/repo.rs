@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use ignore::WalkBuilder;
 
-use crate::concurrent::contracts::*;
 use crate::contracts::{ChangeScopeV1, ChangedFileStatus, PathPolicyV1};
 use crate::repo::is_textish;
+use crate::runtime::contracts::*;
 
 #[derive(Debug)]
 pub(crate) struct RepoSnapshot {

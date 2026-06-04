@@ -1,8 +1,8 @@
-use crate::concurrent::contracts::{ConversationItem, SessionScope, ToolResultEnvelope, TurnId};
-use crate::concurrent::dispatch::RuntimeEventDispatcher;
-use crate::concurrent::policy::{ReviewerPolicy, SessionEvidence, SessionTerminal};
-use crate::concurrent::tools::{count_tool_result, ToolEngine};
 use crate::contracts::{ToolCounts, ToolName};
+use crate::runtime::contracts::{ConversationItem, SessionScope, ToolResultEnvelope, TurnId};
+use crate::runtime::dispatch::RuntimeEventDispatcher;
+use crate::runtime::policy::{ReviewerPolicy, SessionEvidence, SessionTerminal};
+use crate::runtime::tools::{count_tool_result, ToolEngine};
 
 pub(crate) struct ToolResultEffectProcessor<'a> {
     policy: &'a ReviewerPolicy,
@@ -118,16 +118,16 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
-    use crate::concurrent::contracts::{
-        CacheInfo, CacheStatus, CapabilitySet, LimitInfo, RuntimeEvent, RuntimeEventContext,
-        RuntimeEventSink, RuntimeLimits, SessionId, SnapshotId, ToolCallId, ToolErrorCode,
-        ToolErrorInfo, ToolId, ToolProviderId,
-    };
-    use crate::concurrent::repo::RepoSnapshot;
     use crate::contracts::{
         AgentBudget, ChangeKind, ChangeScopeV1, ChangedFileEntryV1, ChangedFileStatus,
         PathPolicyV1, RenameDetection, Role, SnapshotMode,
     };
+    use crate::runtime::contracts::{
+        CacheInfo, CacheStatus, CapabilitySet, LimitInfo, RuntimeEvent, RuntimeEventContext,
+        RuntimeEventSink, RuntimeLimits, SessionId, SnapshotId, ToolCallId, ToolErrorCode,
+        ToolErrorInfo, ToolId, ToolProviderId,
+    };
+    use crate::runtime::repo::RepoSnapshot;
 
     #[derive(Default)]
     struct RecordingRuntimeSink {
