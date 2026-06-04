@@ -1,12 +1,14 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
+use dashmap::DashMap;
 use futures::stream::{FuturesUnordered, StreamExt};
 use moka::future::Cache;
 use parking_lot::Mutex;
 use serde_json::json;
-use tokio::sync::{Mutex as TokioMutex, Notify, Semaphore};
+use tokio::sync::{Mutex as TokioMutex, Notify, OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use crate::concurrent::contracts::*;
@@ -14,10 +16,14 @@ use crate::concurrent::repo::RepoSnapshot;
 use crate::contracts::{ByteRangeV1, EvidenceRefV1, ToolName};
 use crate::util::redaction_none;
 
+use super::authorization::ToolAuthorizer;
 use super::metrics::{ConcurrentAtomicCounters, ConcurrentToolMetricsStore};
+use super::provider::{
+    BuiltinReviewToolProvider, InProcessToolProvider, JsonRpcToolProvider, ToolProvider,
+};
 use super::read::ReadService;
 use super::redaction::Redactor;
-use super::registry::{CustomToolContext, ToolRegistry};
+use super::registry::{CustomToolContext, CustomToolOutput, ToolRegistry};
 use super::search::SearchCoordinator;
 use super::store::{
     artifact_kind_for_tool, evidence_line_range, evidence_location, evidence_revision_for_tool,
@@ -37,6 +43,9 @@ pub(crate) struct ToolEngine {
     result_cache: Cache<String, Arc<ToolResultEnvelope>>,
     inflight: Mutex<HashMap<String, Arc<InflightToolResult>>>,
     read_permits: Arc<Semaphore>,
+    authorizer: ToolAuthorizer,
+    provider_permits: DashMap<String, Arc<Semaphore>>,
+    providers: Vec<Arc<dyn ToolProvider>>,
     pub(crate) counters: Arc<ConcurrentAtomicCounters>,
     pub(crate) metrics: Arc<ConcurrentToolMetricsStore>,
 }
@@ -76,6 +85,15 @@ impl ToolEngine {
             Arc::clone(&artifacts),
             Arc::clone(&counters),
         )?);
+        let mut providers: Vec<Arc<dyn ToolProvider>> = vec![
+            Arc::new(BuiltinReviewToolProvider),
+            Arc::new(InProcessToolProvider),
+        ];
+        providers.extend(registry.jsonrpc_transports().into_iter().map(
+            |(provider_id, transport)| {
+                Arc::new(JsonRpcToolProvider::new(provider_id, transport)) as Arc<dyn ToolProvider>
+            },
+        ));
         Ok(Self {
             snapshot,
             artifacts,
@@ -86,6 +104,9 @@ impl ToolEngine {
             result_cache: Cache::new(limits.search_result_cache_bytes.max(1)),
             inflight: Mutex::new(HashMap::new()),
             read_permits: Arc::new(Semaphore::new(limits.max_read_concurrency_global.max(1))),
+            authorizer: ToolAuthorizer::new(),
+            provider_permits: DashMap::new(),
+            providers,
             limits,
             redactor,
             counters,
@@ -213,11 +234,23 @@ impl ToolEngine {
                                 ),
                             );
                         };
-                        engine.execute_invocation(invocation, cancel).await
+                        let input_bytes = invocation.input_bytes;
+                        let started = Instant::now();
+                        let mut result = engine.execute_invocation(invocation, cancel).await;
+                        result.limits.input_bytes = input_bytes;
+                        result.limits.latency_ms = elapsed_ms(started);
+                        if matches!(result.cache.status, CacheStatus::Hit | CacheStatus::Deduped) {
+                            result.limits.queue_wait_ms = 0;
+                        }
+                        result
                     }
-                    Err((call_id, name, error)) => {
-                        engine.error_result(call_id, name, error, "invalid tool invocation", false)
-                    }
+                    Err((call_id, name, error)) => engine.error_result(
+                        call_id,
+                        name,
+                        error,
+                        validation_error_message(error),
+                        false,
+                    ),
                 };
                 (original_index, result)
             });
@@ -251,27 +284,21 @@ impl ToolEngine {
                 false,
             );
         }
-        if !invocation.capabilities.allow_tool(&invocation.tool_id) {
-            return self.error_result(
-                invocation.call_id,
-                invocation.tool_id,
-                ToolErrorCode::ToolNotAllowed,
-                "tool is not allowed for this session",
-                false,
-            );
-        }
-        if invocation.builtin_name.is_none()
-            && self
-                .registry
-                .definition(&invocation.tool_id)
-                .and_then(|definition| definition.handler.as_ref())
-                .is_none()
-        {
+        let Some(definition) = self.registry.definition(&invocation.tool_id) else {
             return self.error_result(
                 invocation.call_id,
                 invocation.tool_id,
                 ToolErrorCode::UnknownTool,
-                "custom tool has no registered handler",
+                "tool is not registered",
+                false,
+            );
+        };
+        if let Err(error) = self.authorizer.authorize(&invocation, definition) {
+            return self.error_result(
+                invocation.call_id,
+                invocation.tool_id,
+                error.code,
+                error.message,
                 false,
             );
         }
@@ -325,18 +352,108 @@ impl ToolEngine {
             );
             loop {
                 if let Some(result) = cell.result.lock().await.clone() {
-                    break result.for_call(
+                    return result.for_call(
                         invocation.call_id,
                         invocation.tool_id,
                         CacheStatus::Deduped,
                     );
                 }
-                cell.notify.notified().await;
+                tokio::select! {
+                    _ = cancel.cancelled() => {
+                        return self.error_result(
+                            invocation.call_id,
+                            invocation.tool_id,
+                            ToolErrorCode::Cancelled,
+                            "operation cancelled",
+                            true,
+                        );
+                    }
+                    _ = cell.notify.notified() => {}
+                }
             }
         }
     }
 
     async fn compute_uncached(
+        &self,
+        invocation: ToolInvocation,
+        cancel: CancellationToken,
+        cache_status: CacheStatus,
+    ) -> ToolResultEnvelope {
+        let call_id = invocation.call_id.clone();
+        let tool_id = invocation.tool_id.clone();
+        let Some(definition) = self.registry.definition(&tool_id) else {
+            return self.error_result(
+                call_id,
+                tool_id,
+                ToolErrorCode::UnknownTool,
+                "tool is not registered",
+                false,
+            );
+        };
+        let Some(provider) = self
+            .providers
+            .iter()
+            .find(|provider| provider.accepts(definition))
+        else {
+            return self.error_result(
+                call_id,
+                tool_id,
+                ToolErrorCode::UnknownTool,
+                "tool has no provider",
+                false,
+            );
+        };
+        let provider_id = provider.id();
+        let timeout = Duration::from_millis(self.limits.max_tool_provider_ms.max(1));
+        let queue_started = Instant::now();
+        let permit = match self.acquire_provider_permit(&provider_id, timeout).await {
+            Ok(permit) => permit,
+            Err(error) => {
+                let mut result = self.runtime_error_result(call_id, tool_id, error);
+                result.limits.queue_wait_ms = elapsed_ms_allow_zero(queue_started);
+                return result;
+            }
+        };
+        let queue_wait_ms = elapsed_ms_allow_zero(queue_started);
+        let _permit = permit;
+        let mut result = match tokio::time::timeout(
+            timeout,
+            provider.execute(self, invocation, cancel, cache_status),
+        )
+        .await
+        {
+            Ok(Ok(result)) => result,
+            Ok(Err(error)) => self.runtime_error_result(call_id, tool_id, error),
+            Err(_) => self.runtime_error_result(call_id, tool_id, RuntimeError::Timeout),
+        };
+        result.limits.queue_wait_ms = queue_wait_ms;
+        result
+    }
+
+    async fn acquire_provider_permit(
+        &self,
+        provider_id: &ToolProviderId,
+        timeout: Duration,
+    ) -> RuntimeResult<OwnedSemaphorePermit> {
+        let permits = self
+            .provider_permits
+            .entry(provider_id.as_str().to_string())
+            .or_insert_with(|| {
+                Arc::new(Semaphore::new(
+                    self.limits
+                        .max_tool_provider_concurrency_per_provider
+                        .max(1),
+                ))
+            })
+            .clone();
+        tokio::time::timeout(timeout, permits.acquire_owned())
+            .await
+            .map_err(|_| RuntimeError::Timeout)?
+            .map_err(|_| RuntimeError::Cancelled)
+    }
+
+    pub(super) async fn execute_builtin_tool(
         &self,
         invocation: ToolInvocation,
         cancel: CancellationToken,
@@ -513,7 +630,13 @@ impl ToolEngine {
                 };
                 self.finish(invocation.call_id, reason)
             }
-            None => self.custom_tool(invocation, cancel, cache_status).await,
+            None => self.error_result(
+                invocation.call_id,
+                invocation.tool_id,
+                ToolErrorCode::UnknownTool,
+                "tool is not registered as a built-in provider tool",
+                false,
+            ),
         }
     }
 
@@ -570,18 +693,20 @@ impl ToolEngine {
 
     fn read_diff(&self, call_id: ToolCallId, cache_status: CacheStatus) -> ToolResultEnvelope {
         let content = self.redactor.redact(&self.snapshot.diff.content);
-        let artifact_id = self.artifacts.insert(
+        let artifact_id = self.artifacts.insert_views(
             ArtifactKey(stable_id(&[
                 &self.snapshot.snapshot_id.0,
                 "read_diff",
                 &self.snapshot.diff.content_hash,
             ])),
+            self.snapshot.diff.content.clone(),
             content.clone(),
         );
         ToolResultEnvelope {
             ok: true,
             tool_call_id: call_id,
             tool_name: ToolId::from(ToolName::ReadDiff),
+            provider_id: ToolProviderId::builtin_review(),
             snapshot_id: self.snapshot.snapshot_id.clone(),
             artifact_id: Some(artifact_id),
             cache: CacheInfo {
@@ -628,6 +753,7 @@ impl ToolEngine {
             ok: true,
             tool_call_id: call_id,
             tool_name: ToolId::from(ToolName::ListChangedFiles),
+            provider_id: ToolProviderId::builtin_review(),
             snapshot_id: self.snapshot.snapshot_id.clone(),
             artifact_id: Some(artifact_id),
             cache: CacheInfo {
@@ -679,6 +805,7 @@ impl ToolEngine {
             ok: true,
             tool_call_id: call_id,
             tool_name: ToolId::from(ToolName::ListFiles),
+            provider_id: ToolProviderId::builtin_review(),
             snapshot_id: self.snapshot.snapshot_id.clone(),
             artifact_id: Some(artifact_id),
             cache: CacheInfo {
@@ -716,6 +843,7 @@ impl ToolEngine {
             ok: true,
             tool_call_id: call_id,
             tool_name: ToolId::from(ToolName::ReadBaseFile),
+            provider_id: ToolProviderId::builtin_review(),
             snapshot_id: self.snapshot.snapshot_id.clone(),
             artifact_id: Some(artifact_id),
             cache: CacheInfo {
@@ -766,19 +894,21 @@ impl ToolEngine {
                 let content = self.redactor.redact(&read.content);
                 let line_count = read.content.lines().count().max(1);
                 let tool_id = ToolId::from(tool_name);
-                let artifact_id = self.artifacts.insert(
+                let artifact_id = self.artifacts.insert_views(
                     ArtifactKey(stable_id(&[
                         &self.snapshot.snapshot_id.0,
                         tool_name.as_str(),
                         &file.fingerprint,
                         &path.display(),
                     ])),
+                    read.content.clone(),
                     content.clone(),
                 );
                 ToolResultEnvelope {
                     ok: true,
                     tool_call_id: call_id,
                     tool_name: tool_id,
+                    provider_id: ToolProviderId::builtin_review(),
                     snapshot_id: self.snapshot.snapshot_id.clone(),
                     artifact_id: Some(artifact_id.clone()),
                     cache: CacheInfo {
@@ -862,6 +992,7 @@ impl ToolEngine {
             ok: true,
             tool_call_id: call_id,
             tool_name: ToolId::from(tool_name),
+            provider_id: ToolProviderId::builtin_review(),
             snapshot_id: self.snapshot.snapshot_id.clone(),
             artifact_id: Some(artifact_id),
             cache: CacheInfo {
@@ -923,20 +1054,23 @@ impl ToolEngine {
                         format!("{}:{}:{}", path.display(), index + 1, line.trim())
                     })
                     .collect::<Vec<_>>();
-                let content = self.redactor.redact(&imports.join("\n"));
-                let artifact_id = self.artifacts.insert(
+                let raw_content = imports.join("\n");
+                let content = self.redactor.redact(&raw_content);
+                let artifact_id = self.artifacts.insert_views(
                     ArtifactKey(stable_id(&[
                         &self.snapshot.snapshot_id.0,
                         "list_imports",
                         &file.fingerprint,
                         &path.display(),
                     ])),
+                    raw_content,
                     content,
                 );
                 ToolResultEnvelope {
                     ok: true,
                     tool_call_id: call_id,
                     tool_name: ToolId::from(ToolName::ListImports),
+                    provider_id: ToolProviderId::builtin_review(),
                     snapshot_id: self.snapshot.snapshot_id.clone(),
                     artifact_id: Some(artifact_id),
                     cache: CacheInfo {
@@ -985,19 +1119,21 @@ impl ToolEngine {
         rationale: String,
     ) -> ToolResultEnvelope {
         let content = format!("{finding_id}: {rationale}");
-        let artifact_id = self.artifacts.insert(
+        let artifact_id = self.artifacts.insert_views(
             ArtifactKey(stable_id(&[
                 &self.snapshot.snapshot_id.0,
                 "challenge_finding",
                 &finding_id,
                 &rationale,
             ])),
+            content.clone(),
             self.redactor.redact(&content),
         );
         ToolResultEnvelope {
             ok: true,
             tool_call_id: call_id,
             tool_name: ToolId::from(ToolName::ChallengeFinding),
+            provider_id: ToolProviderId::builtin_review(),
             snapshot_id: self.snapshot.snapshot_id.clone(),
             artifact_id: Some(artifact_id),
             cache: CacheInfo {
@@ -1027,6 +1163,7 @@ impl ToolEngine {
             ok: true,
             tool_call_id: call_id,
             tool_name: ToolId::from(ToolName::RecordFinding),
+            provider_id: ToolProviderId::builtin_review(),
             snapshot_id: self.snapshot.snapshot_id.clone(),
             artifact_id: None,
             cache: CacheInfo {
@@ -1082,6 +1219,7 @@ impl ToolEngine {
             ok: true,
             tool_call_id: call_id,
             tool_name: ToolId::from(ToolName::Finish),
+            provider_id: ToolProviderId::builtin_review(),
             snapshot_id: self.snapshot.snapshot_id.clone(),
             artifact_id: None,
             cache: CacheInfo {
@@ -1094,25 +1232,28 @@ impl ToolEngine {
         }
     }
 
-    async fn custom_tool(
+    pub(super) async fn execute_in_process_tool(
         &self,
         invocation: ToolInvocation,
         cancel: CancellationToken,
         cache_status: CacheStatus,
     ) -> ToolResultEnvelope {
+        let call_id = invocation.call_id.clone();
+        let tool_id = invocation.tool_id.clone();
         let Some(definition) = self.registry.definition(&invocation.tool_id).cloned() else {
             return self.error_result(
-                invocation.call_id,
-                invocation.tool_id,
+                call_id,
+                tool_id,
                 ToolErrorCode::UnknownTool,
                 "tool is not registered",
                 false,
             );
         };
+        let provider_id = definition.provider_id.clone();
         let Some(handler) = definition.handler else {
             return self.error_result(
-                invocation.call_id,
-                invocation.tool_id,
+                call_id,
+                tool_id,
                 ToolErrorCode::UnknownTool,
                 "tool has no handler",
                 false,
@@ -1120,8 +1261,8 @@ impl ToolEngine {
         };
         let ToolArgs::Raw(args) = invocation.args else {
             return self.error_result(
-                invocation.call_id,
-                invocation.tool_id,
+                call_id,
+                tool_id,
                 ToolErrorCode::InvalidArgs,
                 "custom tool requires raw JSON arguments",
                 false,
@@ -1130,36 +1271,117 @@ impl ToolEngine {
         let context = CustomToolContext {
             session_id: invocation.session_id,
             turn_id: invocation.turn_id,
-            call_id: invocation.call_id.clone(),
-            tool_id: invocation.tool_id.clone(),
+            call_id: call_id.clone(),
+            tool_id: tool_id.clone(),
             snapshot_id: self.snapshot.snapshot_id.clone(),
+            provider_resources: definition.provider_resources.clone(),
         };
-        match handler.execute(context, args, cancel).await {
-            Ok(output) => {
-                let mut limits = output.limits;
-                let artifact_id = output.artifact.map(|artifact| {
-                    let content = self.redactor.redact(&artifact.content);
-                    if limits.output_bytes == 0 {
-                        limits.output_bytes = content.len();
-                    }
-                    self.artifacts.insert(artifact.key, content)
-                });
-                ToolResultEnvelope {
-                    ok: true,
-                    tool_call_id: invocation.call_id,
-                    tool_name: invocation.tool_id,
-                    snapshot_id: self.snapshot.snapshot_id.clone(),
-                    artifact_id,
-                    cache: CacheInfo {
-                        status: cache_status,
-                        key_hash: None,
-                    },
-                    limits,
-                    data: output.data.map(|data| self.redactor.redact_value(data)),
-                    error: None,
+        let output =
+            match tokio::spawn(async move { handler.execute(context, args, cancel).await }).await {
+                Ok(Ok(output)) => output,
+                Ok(Err(error)) => return self.runtime_error_result(call_id, tool_id, error),
+                Err(error) if error.is_panic() => {
+                    return self.error_result(
+                        call_id,
+                        tool_id,
+                        ToolErrorCode::Internal,
+                        "in-process tool provider panicked",
+                        false,
+                    )
                 }
+                Err(_) => {
+                    return self.error_result(
+                        call_id,
+                        tool_id,
+                        ToolErrorCode::Internal,
+                        "in-process tool provider task failed",
+                        false,
+                    )
+                }
+            };
+        self.provider_output_result(
+            call_id,
+            tool_id,
+            provider_id,
+            cache_status,
+            &invocation.capabilities,
+            output,
+        )
+    }
+
+    pub(super) fn provider_output_result(
+        &self,
+        call_id: ToolCallId,
+        tool_id: ToolId,
+        provider_id: ToolProviderId,
+        cache_status: CacheStatus,
+        capabilities: &CapabilitySet,
+        output: CustomToolOutput,
+    ) -> ToolResultEnvelope {
+        let mut limits = output.limits;
+        let data = output.data.map(|data| self.redactor.redact_value(data));
+        let data_bytes = data
+            .as_ref()
+            .and_then(|data| serde_json::to_vec(data).ok())
+            .map_or(0, |bytes| bytes.len());
+        let prepared_artifact = match output.artifact {
+            Some(artifact) => {
+                if !capabilities.artifact_access.write {
+                    return self.error_result(
+                        call_id,
+                        tool_id,
+                        ToolErrorCode::ToolNotAllowed,
+                        "tool artifact write is not allowed for this session",
+                        false,
+                    );
+                }
+                if artifact.content.len() > self.limits.max_tool_artifact_bytes {
+                    return self.error_result(
+                        call_id,
+                        tool_id,
+                        ToolErrorCode::TooLarge,
+                        "tool artifact exceeds runtime artifact limit",
+                        false,
+                    );
+                }
+                let raw_content = artifact.content;
+                let redacted_content = self.redactor.redact(&raw_content);
+                Some((artifact.key, raw_content, redacted_content))
             }
-            Err(error) => self.runtime_error_result(invocation.call_id, invocation.tool_id, error),
+            None => None,
+        };
+        let artifact_bytes = prepared_artifact
+            .as_ref()
+            .map_or(0, |(_, _, redacted_content)| redacted_content.len());
+        let output_bytes = data_bytes.saturating_add(artifact_bytes);
+        if output_bytes > self.limits.max_tool_output_bytes {
+            return self.error_result(
+                call_id,
+                tool_id,
+                ToolErrorCode::TooLarge,
+                "tool output exceeds runtime output limit",
+                false,
+            );
+        }
+        let artifact_id = prepared_artifact.map(|(key, raw_content, redacted_content)| {
+            self.artifacts
+                .insert_views(key, raw_content, redacted_content)
+        });
+        limits.output_bytes = output_bytes;
+        ToolResultEnvelope {
+            ok: true,
+            tool_call_id: call_id,
+            tool_name: tool_id,
+            provider_id,
+            snapshot_id: self.snapshot.snapshot_id.clone(),
+            artifact_id,
+            cache: CacheInfo {
+                status: cache_status,
+                key_hash: None,
+            },
+            limits,
+            data,
+            error: None,
         }
     }
 
@@ -1175,6 +1397,7 @@ impl ToolEngine {
         ToolResultEnvelope {
             ok: false,
             tool_call_id: call_id,
+            provider_id: self.provider_id_for_tool(&tool_name),
             tool_name,
             snapshot_id: self.snapshot.snapshot_id.clone(),
             artifact_id: None,
@@ -1214,11 +1437,25 @@ impl ToolEngine {
                 "resource limit exceeded",
                 false,
             ),
+            RuntimeError::SnapshotStale { .. } => self.error_result(
+                call_id,
+                tool_name,
+                ToolErrorCode::SnapshotStale,
+                "snapshot content changed after capture",
+                false,
+            ),
             RuntimeError::Cancelled => self.error_result(
                 call_id,
                 tool_name,
                 ToolErrorCode::Cancelled,
                 "operation cancelled",
+                true,
+            ),
+            RuntimeError::Timeout => self.error_result(
+                call_id,
+                tool_name,
+                ToolErrorCode::Timeout,
+                "tool provider timed out",
                 true,
             ),
             RuntimeError::InvalidInput(_) => self.error_result(
@@ -1238,6 +1475,13 @@ impl ToolEngine {
         }
     }
 
+    fn provider_id_for_tool(&self, tool_name: &ToolId) -> ToolProviderId {
+        self.registry
+            .definition(tool_name)
+            .map(|definition| definition.provider_id.clone())
+            .unwrap_or_else(ToolProviderId::runtime)
+    }
+
     pub(crate) fn snapshot_counters(&self) -> ConcurrentCounters {
         self.counters.snapshot()
     }
@@ -1246,13 +1490,41 @@ impl ToolEngine {
         self.metrics.snapshot()
     }
 
+    pub(crate) fn snapshot_provider_health(&self) -> Vec<ToolProviderHealthSnapshot> {
+        self.metrics.provider_health_snapshot()
+    }
+
     pub(crate) fn record_tool_metrics(&self, results: &[ToolResultEnvelope]) {
         self.record_batch_metrics(results);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inflight_tool_count_for_test(&self) -> usize {
+        self.inflight.lock().len()
     }
 
     fn record_batch_metrics(&self, results: &[ToolResultEnvelope]) {
         for result in results {
             self.metrics.record(result);
         }
+    }
+}
+
+fn elapsed_ms(started: Instant) -> u64 {
+    (started.elapsed().as_micros().div_ceil(1000) as u64).max(1)
+}
+
+fn elapsed_ms_allow_zero(started: Instant) -> u64 {
+    started.elapsed().as_micros().div_ceil(1000) as u64
+}
+
+fn validation_error_message(code: ToolErrorCode) -> &'static str {
+    match code {
+        ToolErrorCode::ToolNotAllowed => "tool is not allowed for this session",
+        ToolErrorCode::PathDenied => "path is outside the session filesystem scope",
+        ToolErrorCode::TooLarge => "tool arguments exceed this session input capability",
+        ToolErrorCode::UnknownTool => "tool is not registered",
+        ToolErrorCode::InvalidArgs => "invalid tool invocation",
+        _ => "tool invocation failed validation",
     }
 }

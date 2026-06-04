@@ -1,10 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use cap_std::ambient_authority;
 use ignore::WalkBuilder;
 
 use crate::concurrent::contracts::*;
@@ -14,7 +13,12 @@ use crate::repo::is_textish;
 #[derive(Debug)]
 pub(crate) struct RepoSnapshot {
     pub(crate) snapshot_id: SnapshotId,
-    pub(crate) root: cap_std::fs::Dir,
+    pub(crate) manifest_hash: String,
+    pub(crate) path_policy_hash: String,
+    pub(crate) storage_policy_hash: String,
+    pub(crate) storage_policy: SnapshotStoragePolicy,
+    pub(crate) capture_skipped_files: usize,
+    pub(crate) capture_skipped_bytes: u64,
     pub(crate) manifest: Arc<FileManifest>,
     pub(crate) diff: Arc<DiffArtifact>,
 }
@@ -33,8 +37,69 @@ pub(crate) struct FileMeta {
     pub(crate) rel_path: RepoPath,
     pub(crate) size: u64,
     pub(crate) fingerprint: String,
+    pub(crate) content_hash: Option<String>,
+    pub(crate) snapshot_content: Option<SnapshotContentRef>,
+    pub(crate) capture_status: SnapshotCaptureStatus,
     pub(crate) is_changed: bool,
     pub(crate) is_text_candidate: bool,
+}
+
+#[derive(Clone)]
+pub(crate) enum SnapshotContentRef {
+    Memory(Arc<[u8]>),
+    ContentAddressedFile {
+        path: PathBuf,
+        bytes: usize,
+    },
+    RemoteObject {
+        uri: String,
+        bytes: usize,
+        store: Arc<dyn SnapshotObjectStore>,
+    },
+}
+
+impl std::fmt::Debug for SnapshotContentRef {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Memory(bytes) => formatter
+                .debug_struct("Memory")
+                .field("bytes", &bytes.len())
+                .finish(),
+            Self::ContentAddressedFile { path, bytes } => formatter
+                .debug_struct("ContentAddressedFile")
+                .field("path", path)
+                .field("bytes", bytes)
+                .finish(),
+            Self::RemoteObject { uri, bytes, .. } => formatter
+                .debug_struct("RemoteObject")
+                .field("uri", uri)
+                .field("bytes", bytes)
+                .finish_non_exhaustive(),
+        }
+    }
+}
+
+impl SnapshotContentRef {
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            Self::Memory(bytes) => bytes.len(),
+            Self::ContentAddressedFile { bytes, .. } => *bytes,
+            Self::RemoteObject { bytes, .. } => *bytes,
+        }
+    }
+
+    fn read(&self) -> RuntimeResult<Vec<u8>> {
+        match self {
+            Self::Memory(bytes) => Ok(bytes.to_vec()),
+            Self::ContentAddressedFile { path, .. } => fs::read(path)
+                .map_err(|error| RuntimeError::RepoUnavailable(format!("read failed: {error}"))),
+            Self::RemoteObject { uri, store, .. } => {
+                store.read_snapshot_object(uri)?.ok_or_else(|| {
+                    RuntimeError::RepoUnavailable("remote snapshot object missing".to_string())
+                })
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +120,15 @@ impl RepoSnapshot {
         policy: &PathPolicyV1,
         change: &ChangeScopeV1,
     ) -> RuntimeResult<Arc<Self>> {
+        Self::build_with_storage(root, policy, change, SnapshotStoragePolicy::default())
+    }
+
+    pub(crate) fn build_with_storage(
+        root: &Path,
+        policy: &PathPolicyV1,
+        change: &ChangeScopeV1,
+        storage_policy: SnapshotStoragePolicy,
+    ) -> RuntimeResult<Arc<Self>> {
         let root_path = fs::canonicalize(root).map_err(|error| {
             RuntimeError::RepoUnavailable(format!(
                 "failed to canonicalize repo root {}: {error}",
@@ -67,18 +141,14 @@ impl RepoSnapshot {
                 root_path.display()
             )));
         }
-        let root_dir = cap_std::fs::Dir::open_ambient_dir(&root_path, ambient_authority())
-            .map_err(|error| {
-                RuntimeError::RepoUnavailable(format!(
-                    "failed to open capability root {}: {error}",
-                    root_path.display()
-                ))
-            })?;
         let changed_paths = changed_paths(change);
         let mut files = Vec::new();
         let mut by_path = HashMap::new();
         let mut changed_files = Vec::new();
         let changed_file_entries = changed_file_entries(change);
+        let mut captured_text_bytes = 0usize;
+        let mut capture_skipped_files = 0usize;
+        let mut capture_skipped_bytes = 0u64;
 
         let mut walker = WalkBuilder::new(&root_path);
         walker
@@ -126,19 +196,40 @@ impl RepoSnapshot {
                 break;
             }
             let size = meta.len();
-            let is_text_candidate =
+            let can_read_text =
                 is_textish(repo_path.as_path()) && size <= policy.max_file_bytes as u64;
+            let (captured, capture_status) = if can_read_text {
+                let budgeted_size = usize::try_from(size).unwrap_or(usize::MAX);
+                if captured_text_bytes.saturating_add(budgeted_size)
+                    > storage_policy.max_captured_text_bytes
+                {
+                    capture_skipped_files += 1;
+                    capture_skipped_bytes += size;
+                    (None, SnapshotCaptureStatus::SkippedMemoryLimit)
+                } else {
+                    match snapshot_file_content(entry.path(), policy.max_file_bytes) {
+                        Ok(content) => {
+                            captured_text_bytes =
+                                captured_text_bytes.saturating_add(content.bytes.len());
+                            (Some(content), SnapshotCaptureStatus::Captured)
+                        }
+                        Err(_) => (None, SnapshotCaptureStatus::SkippedUnreadable),
+                    }
+                }
+            } else {
+                (None, SnapshotCaptureStatus::NotTextCandidate)
+            };
+            let content_hash = captured.as_ref().map(|content| content.hash.clone());
+            let snapshot_content = captured
+                .map(|content| capture_snapshot_content(&storage_policy, content))
+                .transpose()?;
+            let is_text_candidate = snapshot_content.is_some();
             let is_changed = changed_paths.contains(&repo_path.display());
             let file_id = FileId(files.len() as u32);
             let fingerprint = stable_id(&[
                 &repo_path.display(),
                 &size.to_string(),
-                &meta
-                    .modified()
-                    .ok()
-                    .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|value| value.as_nanos().to_string())
-                    .unwrap_or_default(),
+                content_hash.as_deref().unwrap_or(""),
             ]);
             if is_changed {
                 changed_files.push(file_id);
@@ -149,6 +240,9 @@ impl RepoSnapshot {
                 rel_path: repo_path,
                 size,
                 fingerprint,
+                content_hash,
+                snapshot_content,
+                capture_status,
                 is_changed,
                 is_text_candidate,
             });
@@ -166,10 +260,18 @@ impl RepoSnapshot {
         }
 
         let diff = Arc::new(build_diff(change));
+        let path_policy_hash = path_policy_hash(policy);
+        let storage_policy_hash = storage_policy_hash(&storage_policy);
         let manifest_hash = stable_id(
             &files
                 .iter()
-                .map(|file| file.rel_path.display())
+                .map(|file| {
+                    format!(
+                        "{}:{}",
+                        file.rel_path.display(),
+                        file.content_hash.as_deref().unwrap_or("")
+                    )
+                })
                 .collect::<Vec<_>>()
                 .iter()
                 .map(String::as_str)
@@ -182,6 +284,8 @@ impl RepoSnapshot {
             &change.head_revision_id,
             &diff.content_hash,
             &manifest_hash,
+            &path_policy_hash,
+            &storage_policy_hash,
             &CONCURRENT_CONTRACT_VERSION.to_string(),
             &REDACTION_POLICY_VERSION.to_string(),
         ]));
@@ -193,7 +297,12 @@ impl RepoSnapshot {
         });
         Ok(Arc::new(Self {
             snapshot_id,
-            root: root_dir,
+            manifest_hash,
+            path_policy_hash,
+            storage_policy_hash,
+            storage_policy,
+            capture_skipped_files,
+            capture_skipped_bytes,
             manifest,
             diff,
         }))
@@ -225,34 +334,182 @@ impl RepoSnapshot {
             return Err(RuntimeError::LimitExceeded { kind: "file_bytes" });
         }
         if !file.is_text_candidate {
-            return Err(RuntimeError::InvalidInput(
-                "file is not text-readable".to_string(),
-            ));
+            return match file.capture_status {
+                SnapshotCaptureStatus::SkippedMemoryLimit => Err(RuntimeError::LimitExceeded {
+                    kind: "snapshot_capture_bytes",
+                }),
+                SnapshotCaptureStatus::SkippedUnreadable => Err(RuntimeError::InvalidInput(
+                    "file is not text-readable".to_string(),
+                )),
+                _ => Err(RuntimeError::InvalidInput(
+                    "file is not text-readable".to_string(),
+                )),
+            };
         }
+        file.content_hash.as_ref().ok_or(RuntimeError::Invariant(
+            "text candidate missing snapshot content hash",
+        ))?;
         if file.size > max_bytes as u64 {
             return Err(RuntimeError::LimitExceeded { kind: "file_bytes" });
         }
-        let mut reader = self
-            .root
-            .open(file.rel_path.as_path())
-            .map_err(|error| RuntimeError::RepoUnavailable(format!("open failed: {error}")))?;
-        let mut bytes = Vec::new();
-        reader
-            .by_ref()
-            .take(max_bytes as u64 + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|error| RuntimeError::RepoUnavailable(format!("read failed: {error}")))?;
-        let truncated = bytes.len() > max_bytes;
-        if truncated {
-            bytes.truncate(max_bytes);
+        let content = file
+            .snapshot_content
+            .as_ref()
+            .ok_or(RuntimeError::Invariant(
+                "text candidate missing snapshot content",
+            ))?;
+        if content.len() > max_bytes {
+            return Err(RuntimeError::LimitExceeded { kind: "file_bytes" });
         }
-        if bytes.contains(&0) {
-            return Err(RuntimeError::InvalidInput(
-                "binary file rejected".to_string(),
-            ));
+        let bytes = content.read()?;
+        let expected_hash = file.content_hash.as_ref().ok_or(RuntimeError::Invariant(
+            "text candidate missing snapshot content hash",
+        ))?;
+        if content_hash(&bytes) != *expected_hash {
+            return Err(RuntimeError::SnapshotStale {
+                path: file.rel_path.display(),
+            });
         }
-        Ok((bytes, truncated))
+        Ok((bytes.to_vec(), false))
     }
+}
+
+#[derive(Debug, Clone)]
+struct CapturedFileContent {
+    hash: String,
+    bytes: Vec<u8>,
+}
+
+fn snapshot_file_content(path: &Path, max_bytes: usize) -> RuntimeResult<CapturedFileContent> {
+    let mut file = fs::File::open(path)
+        .map_err(|error| RuntimeError::RepoUnavailable(format!("open failed: {error}")))?;
+    let mut bytes = Vec::new();
+    file.by_ref()
+        .take(max_bytes as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| RuntimeError::RepoUnavailable(format!("read failed: {error}")))?;
+    if bytes.len() > max_bytes || bytes.contains(&0) {
+        return Err(RuntimeError::InvalidInput(
+            "file is not text-readable".to_string(),
+        ));
+    }
+    Ok(CapturedFileContent {
+        hash: content_hash(&bytes),
+        bytes,
+    })
+}
+
+fn capture_snapshot_content(
+    policy: &SnapshotStoragePolicy,
+    content: CapturedFileContent,
+) -> RuntimeResult<SnapshotContentRef> {
+    match &policy.mode {
+        SnapshotStorageMode::Memory => Ok(SnapshotContentRef::Memory(Arc::from(
+            content.bytes.into_boxed_slice(),
+        ))),
+        SnapshotStorageMode::ContentAddressedDirectory { root } => {
+            let path = content_addressed_path(root, &content.hash);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).map_err(|error| {
+                    RuntimeError::RepoUnavailable(format!(
+                        "failed to create snapshot content store: {error}"
+                    ))
+                })?;
+            }
+            fs::write(&path, &content.bytes).map_err(|error| {
+                RuntimeError::RepoUnavailable(format!(
+                    "failed to write snapshot content store: {error}"
+                ))
+            })?;
+            Ok(SnapshotContentRef::ContentAddressedFile {
+                path,
+                bytes: content.bytes.len(),
+            })
+        }
+        SnapshotStorageMode::RemoteObjectStore { base_uri } => {
+            let store = policy.remote_store().ok_or(RuntimeError::InvalidInput(
+                "remote snapshot storage requires a snapshot object store".to_string(),
+            ))?;
+            let uri = remote_content_addressed_uri(base_uri, &content.hash)?;
+            let bytes = content.bytes.len();
+            store.put_snapshot_object(&uri, content.bytes)?;
+            Ok(SnapshotContentRef::RemoteObject { uri, bytes, store })
+        }
+    }
+}
+
+fn content_addressed_path(root: &Path, hash: &str) -> PathBuf {
+    let prefix = hash.get(..2).unwrap_or("00");
+    root.join(prefix).join(hash)
+}
+
+pub(crate) fn remote_content_addressed_uri(base_uri: &str, hash: &str) -> RuntimeResult<String> {
+    if hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(RuntimeError::RepoAccessDenied);
+    }
+    Ok(format!(
+        "{}/snapshots/{}",
+        base_uri.trim_end_matches('/'),
+        hash
+    ))
+}
+
+fn content_hash(bytes: &[u8]) -> String {
+    blake3::hash(bytes).to_hex().to_string()
+}
+
+fn path_policy_hash(policy: &PathPolicyV1) -> String {
+    let mut parts = Vec::new();
+    parts.push(format!("allow_dot_git={}", policy.allow_dot_git));
+    parts.push(format!("follow_symlinks={}", policy.follow_symlinks));
+    parts.push(format!("max_file_bytes={}", policy.max_file_bytes));
+    parts.push(format!("max_diff_bytes={}", policy.max_diff_bytes));
+    parts.push(format!("max_search_results={}", policy.max_search_results));
+    parts.push(format!(
+        "max_directory_entries={}",
+        policy.max_directory_entries
+    ));
+    parts.extend(
+        policy
+            .allowed_roots
+            .iter()
+            .map(|path| format!("allowed={}", path.to_string_lossy().replace('\\', "/"))),
+    );
+    parts.extend(
+        policy
+            .denied_globs
+            .iter()
+            .map(|glob| format!("denied={glob}")),
+    );
+    if let Some(allowed_globs) = &policy.allowed_globs {
+        parts.extend(
+            allowed_globs
+                .iter()
+                .map(|glob| format!("allowed_glob={glob}")),
+        );
+    }
+    let refs = parts.iter().map(String::as_str).collect::<Vec<_>>();
+    stable_id(&refs)
+}
+
+fn storage_policy_hash(policy: &SnapshotStoragePolicy) -> String {
+    let mut parts = Vec::new();
+    parts.push(format!(
+        "max_captured_text_bytes={}",
+        policy.max_captured_text_bytes
+    ));
+    match &policy.mode {
+        SnapshotStorageMode::Memory => parts.push("mode=memory".to_string()),
+        SnapshotStorageMode::ContentAddressedDirectory { root } => parts.push(format!(
+            "mode=content_addressed_directory:{}",
+            root.to_string_lossy().replace('\\', "/")
+        )),
+        SnapshotStorageMode::RemoteObjectStore { base_uri } => {
+            parts.push(format!("mode=remote_object_store:{base_uri}"))
+        }
+    }
+    let refs = parts.iter().map(String::as_str).collect::<Vec<_>>();
+    stable_id(&refs)
 }
 
 fn changed_paths(change: &ChangeScopeV1) -> HashSet<String> {

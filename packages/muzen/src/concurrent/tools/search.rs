@@ -4,6 +4,8 @@ use std::time::Instant;
 
 use rayon::prelude::*;
 use serde_json::json;
+#[cfg(test)]
+use tokio::sync::OwnedSemaphorePermit;
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
@@ -65,12 +67,12 @@ impl SearchCoordinator {
                 kind: "search_pattern_bytes",
             });
         }
-        let _permit = self
-            .search_permits
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| RuntimeError::Cancelled)?;
+        let _permit = tokio::select! {
+            _ = cancel.cancelled() => return Err(RuntimeError::Cancelled),
+            permit = self.search_permits.clone().acquire_owned() => {
+                permit.map_err(|_| RuntimeError::Cancelled)?
+            }
+        };
         if cancel.is_cancelled() {
             return Err(RuntimeError::Cancelled);
         }
@@ -122,6 +124,9 @@ impl SearchCoordinator {
         let mut bytes_scanned = 0usize;
         let mut truncated = false;
         for result in scan {
+            if let Some(error) = result.error {
+                return Err(error);
+            }
             searched_files += result.searched_files;
             skipped_files += result.skipped_files;
             bytes_scanned += result.bytes_scanned;
@@ -144,7 +149,7 @@ impl SearchCoordinator {
             .collect::<Vec<_>>();
         let first_match = matches.first().and_then(|line| parse_search_match(line));
         let content = redacted.join("\n");
-        let artifact_id = self.artifacts.insert(
+        let artifact_id = self.artifacts.insert_views(
             ArtifactKey(stable_id(&[
                 &self.snapshot.snapshot_id.0,
                 "search_text",
@@ -152,12 +157,14 @@ impl SearchCoordinator {
                 &query,
                 &max_matches.to_string(),
             ])),
+            matches.join("\n"),
             content,
         );
         Ok(ToolResultEnvelope {
             ok: true,
             tool_call_id: ToolCallId("search-result-template".to_string()),
             tool_name: ToolId::from(ToolName::SearchText),
+            provider_id: ToolProviderId::builtin_review(),
             snapshot_id: self.snapshot.snapshot_id.clone(),
             artifact_id: Some(artifact_id),
             cache: CacheInfo {
@@ -170,6 +177,7 @@ impl SearchCoordinator {
                 searched_files,
                 skipped_files,
                 bytes_scanned,
+                ..LimitInfo::default()
             },
             data: Some(json!({
                 "query": query,
@@ -188,6 +196,15 @@ impl SearchCoordinator {
             error: None,
         })
     }
+
+    #[cfg(test)]
+    pub(crate) async fn acquire_search_permit_for_test(&self) -> OwnedSemaphorePermit {
+        self.search_permits
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("search semaphore should be open")
+    }
 }
 
 #[derive(Debug)]
@@ -196,6 +213,7 @@ struct SearchFileResult {
     searched_files: usize,
     skipped_files: usize,
     bytes_scanned: usize,
+    error: Option<RuntimeError>,
 }
 
 impl SearchFileResult {
@@ -205,6 +223,27 @@ impl SearchFileResult {
             searched_files: 0,
             skipped_files: 0,
             bytes_scanned: 0,
+            error: None,
+        }
+    }
+
+    fn skipped() -> Self {
+        Self {
+            matches: Vec::new(),
+            searched_files: 0,
+            skipped_files: 1,
+            bytes_scanned: 0,
+            error: None,
+        }
+    }
+
+    fn error(error: RuntimeError) -> Self {
+        Self {
+            matches: Vec::new(),
+            searched_files: 0,
+            skipped_files: 0,
+            bytes_scanned: 0,
+            error: Some(error),
         }
     }
 }
@@ -217,31 +256,18 @@ fn scan_file(
     max_matches: usize,
 ) -> SearchFileResult {
     let Ok(file) = snapshot.file(file_id) else {
-        return SearchFileResult {
-            matches: Vec::new(),
-            searched_files: 0,
-            skipped_files: 1,
-            bytes_scanned: 0,
-        };
+        return SearchFileResult::skipped();
     };
-    let Ok((bytes, _)) = snapshot.read_bounded(file_id, max_bytes) else {
-        return SearchFileResult {
-            matches: Vec::new(),
-            searched_files: 0,
-            skipped_files: 1,
-            bytes_scanned: 0,
-        };
+    let (bytes, _) = match snapshot.read_bounded(file_id, max_bytes) {
+        Ok(read) => read,
+        Err(RuntimeError::SnapshotStale { path }) => {
+            return SearchFileResult::error(RuntimeError::SnapshotStale { path });
+        }
+        Err(_) => return SearchFileResult::skipped(),
     };
     let content = match String::from_utf8(bytes) {
         Ok(content) => content,
-        Err(_) => {
-            return SearchFileResult {
-                matches: Vec::new(),
-                searched_files: 0,
-                skipped_files: 1,
-                bytes_scanned: 0,
-            };
-        }
+        Err(_) => return SearchFileResult::skipped(),
     };
     let bytes_scanned = content.len();
     let mut matches = Vec::new();
@@ -263,6 +289,7 @@ fn scan_file(
         searched_files: 1,
         skipped_files: 0,
         bytes_scanned,
+        error: None,
     }
 }
 

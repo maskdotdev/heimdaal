@@ -1,0 +1,6 @@
+{"event":{"jobStarted":{"snapshotId":"legacy-snapshot"}},"schemaVersion":"heimdaal.review-run.v0.contextless","seq":1,"timestampUtc":"1780519900.000000000Z"}
+{"event":{"modelStarted":{"sessionId":"legacy-session","turnId":7}},"schemaVersion":"heimdaal.review-run.v0.contextless","seq":2,"timestampUtc":"1780519901.000000000Z"}
+{"event":{"toolCallDenied":{"callId":"legacy-denied-call","errorCode":"tool_not_allowed","providerId":"builtin_review","reason":"legacy fixture denial","toolName":"read_file"}},"schemaVersion":"heimdaal.review-run.v0.contextless","seq":3,"timestampUtc":"1780519902.000000000Z"}
+{"event":{"artifactCreated":{"artifactId":"legacy-artifact","bytes":64,"contentHash":"legacy-hash","providerId":"builtin_review","toolCallId":"legacy-artifact-call","toolName":"search_text"}},"schemaVersion":"heimdaal.review-run.v0.contextless","seq":4,"timestampUtc":"1780519903.000000000Z"}
+{"event":{"sessionFinished":{"sessionId":"legacy-session","status":"cancelled"}},"schemaVersion":"heimdaal.review-run.v0.contextless","seq":5,"timestampUtc":"1780519904.000000000Z"}
+{"event":{"jobFinished":{"status":"partial"}},"schemaVersion":"heimdaal.review-run.v0.contextless","seq":6,"timestampUtc":"1780519905.000000000Z"}

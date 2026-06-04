@@ -48,6 +48,10 @@ pub(crate) fn validate_invocation(
 ) -> Result<ToolInvocation, (ToolCallId, ToolId, ToolErrorCode)> {
     let tool_id = call.name;
     let builtin_name = tool_id.as_builtin();
+    let input_bytes = call.raw_arguments.len();
+    if input_bytes > capabilities.tool_input.max_argument_bytes {
+        return Err((call.call_id, tool_id, ToolErrorCode::TooLarge));
+    }
     let Some(definition) = registry.definition(&tool_id) else {
         return Err((call.call_id, tool_id, ToolErrorCode::UnknownTool));
     };
@@ -155,6 +159,7 @@ pub(crate) fn validate_invocation(
         call_id: call.call_id,
         tool_id,
         builtin_name,
+        input_bytes,
         args,
         capabilities,
         scope_key,
@@ -166,5 +171,36 @@ pub(crate) fn count_tool_result(counts: &mut ToolCounts, result: &ToolResultEnve
         if let Some(tool_name) = result.tool_name.as_builtin() {
             counts.increment(tool_name);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::concurrent::tools::ToolRegistry;
+
+    #[test]
+    fn validation_rejects_arguments_over_capability_input_limit() {
+        let registry = ToolRegistry::review_defaults().expect("registry");
+        let mut capabilities = CapabilitySet::review_read_only();
+        capabilities.tool_input.max_argument_bytes = 1;
+        let call = ModelToolCall {
+            call_id: ToolCallId("call".to_string()),
+            index: 0,
+            name: ToolId::from(ToolName::ReadDiff),
+            raw_arguments: "{}".to_string(),
+        };
+
+        let err = validate_invocation(
+            SessionId("session".to_string()),
+            TurnId(1),
+            call,
+            capabilities,
+            FsScope::repo_root().scope_key(&SnapshotId("snapshot".to_string())),
+            &registry,
+        )
+        .expect_err("oversized arguments should be denied");
+
+        assert_eq!(err.2, ToolErrorCode::TooLarge);
     }
 }

@@ -79,6 +79,7 @@ pub(crate) fn bench_job(args: &BenchArgs) -> Result<ReviewRunJobV1> {
         model_profiles: vec![ModelProfileRefV1 {
             id: "bench-oai".to_string(),
             provider_kind: ProviderKind::OpenaiCompatible,
+            api_protocol: ModelApiProtocol::ChatCompletions,
             provider_profile_id: "env-openai-compatible".to_string(),
             credential_ref: "env:OPENAI_API_KEY".to_string(),
             model: args.model.clone(),

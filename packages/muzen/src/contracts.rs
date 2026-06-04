@@ -113,6 +113,8 @@ pub(crate) enum ChangedFileStatus {
 pub(crate) struct ModelProfileRefV1 {
     pub(crate) id: String,
     pub(crate) provider_kind: ProviderKind,
+    #[serde(default)]
+    pub(crate) api_protocol: ModelApiProtocol,
     pub(crate) provider_profile_id: String,
     pub(crate) credential_ref: String,
     pub(crate) model: String,
@@ -127,6 +129,19 @@ pub(crate) struct ModelProfileRefV1 {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ProviderKind {
     OpenaiCompatible,
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelApiProtocol {
+    ChatCompletions,
+    Responses,
+}
+
+impl Default for ModelApiProtocol {
+    fn default() -> Self {
+        Self::ChatCompletions
+    }
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]

@@ -9,17 +9,18 @@ use tokio_util::sync::CancellationToken;
 
 use crate::bench::{preferred_bench_file_score, synthetic_changed_files};
 use crate::concurrent::contracts::*;
+use crate::concurrent::dispatch::RuntimeEventDispatcher;
 use crate::concurrent::model::{
-    MockReviewModel, ModelLimiter, OpenAiChatCompletionsClient, ProfileModelRouter,
-    StaticModelRouter,
+    export_model_provider_canary_evidence, run_openai_provider_canaries, EnvCredentialResolver,
+    MockReviewModel, ModelLimiter, ModelProviderCanaryEvidence, OpenAiChatCompletionsClient,
+    OpenAiProviderCanaryConfig, StaticModelRouter,
 };
+use crate::concurrent::policy::ReviewerPolicy;
 use crate::concurrent::repo::RepoSnapshot;
 use crate::concurrent::runtime::{ConcurrentJobRuntime, ConcurrentSessionSpec};
 use crate::concurrent::tools::{ToolEngine, ToolRegistry};
 use crate::contracts::*;
-use crate::events::{EventEmitter, EventRecord};
-use crate::job::{effective_personas, tool_allowed, validate_job};
-use crate::util::SCHEMA_VERSION;
+use crate::events::EventEmitter;
 
 #[derive(Parser, Debug, Clone)]
 pub(crate) struct ConcurrentBenchArgs {
@@ -76,6 +77,13 @@ pub(crate) struct ConcurrentRealBenchArgs {
 
     #[arg(long, default_value_t = 1000)]
     pub(crate) hold_ms: u64,
+
+    #[arg(long, default_value_t = false)]
+    pub(crate) run_provider_canaries: bool,
+
+    /// Write schema-versioned provider canary evidence JSON; implies --run-provider-canaries.
+    #[arg(long)]
+    pub(crate) provider_canary_report: Option<PathBuf>,
 }
 
 pub(crate) fn run_compare(args: ConcurrentBenchArgs) -> Result<ComparisonReport> {
@@ -111,12 +119,15 @@ pub(crate) fn run_compare(args: ConcurrentBenchArgs) -> Result<ComparisonReport>
     } else {
         baseline.counters.search_scans as f64 / concurrent.counters.search_scans as f64
     };
+    let optimization_failures = optimization_failures(&baseline, &concurrent, speedup);
     let report = ComparisonReport {
         sessions: args.sessions,
         sync: baseline,
         concurrent,
         speedup,
         search_scan_reduction,
+        optimization_valid: optimization_failures.is_empty(),
+        optimization_failures,
     };
     println!("{}", serde_json::to_string_pretty(&report)?);
     if !report.concurrent.benchmark_valid {
@@ -126,6 +137,30 @@ pub(crate) fn run_compare(args: ConcurrentBenchArgs) -> Result<ComparisonReport>
         );
     }
     Ok(report)
+}
+
+pub(crate) fn optimization_failures(
+    baseline: &ConcurrentRunReport,
+    concurrent: &ConcurrentRunReport,
+    speedup: f64,
+) -> Vec<String> {
+    let mut failures = Vec::new();
+    if concurrent.counters.search_scans > baseline.counters.search_scans {
+        failures.push(format!(
+            "concurrent search scanned more batches than baseline: {} > {}",
+            concurrent.counters.search_scans, baseline.counters.search_scans
+        ));
+    }
+    if concurrent.elapsed_ms > baseline.elapsed_ms.saturating_mul(4).max(1) {
+        failures.push(format!(
+            "concurrent runtime exceeded 4x baseline wall time: {}ms vs {}ms",
+            concurrent.elapsed_ms, baseline.elapsed_ms
+        ));
+    }
+    if speedup.is_finite() && speedup < 0.25 {
+        failures.push(format!("measured speedup below floor: {speedup:.2}x"));
+    }
+    failures
 }
 
 pub(crate) fn run_real_bench(args: ConcurrentRealBenchArgs) -> Result<ConcurrentRunReport> {
@@ -160,6 +195,7 @@ pub(crate) fn run_real_bench(args: ConcurrentRealBenchArgs) -> Result<Concurrent
     let profile = ModelProfileRefV1 {
         id: "bench-oai".to_string(),
         provider_kind: ProviderKind::OpenaiCompatible,
+        api_protocol: ModelApiProtocol::ChatCompletions,
         provider_profile_id: "env-openai-compatible".to_string(),
         credential_ref: "env:OPENAI_API_KEY".to_string(),
         model: args.model.clone(),
@@ -174,17 +210,23 @@ pub(crate) fn run_real_bench(args: ConcurrentRealBenchArgs) -> Result<Concurrent
         .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
     let model = Arc::new(OpenAiChatCompletionsClient::from_profile(
         profile,
-        base_url,
-        Arc::new(ModelLimiter::new(args.max_model_concurrency)),
+        base_url.clone(),
+        Arc::new(ModelLimiter::new_with_per_key(
+            limits.max_model_concurrency_global,
+            limits.max_model_concurrency_per_key,
+        )),
         registry,
+        Arc::new(ReviewerPolicy::new()),
+        Arc::new(EnvCredentialResolver),
     )?);
     let runtime = ConcurrentJobRuntime {
         snapshot,
         model_router: Arc::new(StaticModelRouter::new(model)),
         tools,
+        policy: Arc::new(ReviewerPolicy::new()),
         limits,
         review_revision_id: change.head_revision_id.clone(),
-        emitter: None,
+        events: RuntimeEventDispatcher::none(),
     };
     let target_path = target_path.to_string_lossy().into_owned();
     let session_specs = (0..args.sessions)
@@ -196,6 +238,7 @@ pub(crate) fn run_real_bench(args: ConcurrentRealBenchArgs) -> Result<Concurrent
                     "Benchmark task: call read_diff, call read_file with path `{target_path}`, call search_text with query `{}`, then record one concise evidence-backed benchmark finding.",
                     args.query
                 ),
+                snapshot_id: None,
                 model_profile_id: Some("bench-oai".to_string()),
                 capabilities: CapabilitySet::review_read_only(),
                 budget: AgentBudget {
@@ -212,6 +255,31 @@ pub(crate) fn run_real_bench(args: ConcurrentRealBenchArgs) -> Result<Concurrent
         .enable_all()
         .build()
         .context("failed to build tokio runtime")?;
+    if args.run_provider_canaries || args.provider_canary_report.is_some() {
+        let mut canary_config = OpenAiProviderCanaryConfig::from_env(args.model.clone());
+        canary_config.enabled = true;
+        canary_config.base_url = base_url;
+        canary_config.model = args.model.clone();
+        canary_config.max_output_tokens = args.max_output_tokens.clamp(1, 64);
+        let canary_reports = tokio_runtime.block_on(run_openai_provider_canaries(
+            canary_config,
+            Arc::new(EnvCredentialResolver),
+        ));
+        let canary_evidence = ModelProviderCanaryEvidence::from_reports(canary_reports);
+        if let Some(path) = &args.provider_canary_report {
+            let export = export_model_provider_canary_evidence(path, &canary_evidence)
+                .map_err(|error| anyhow::anyhow!("{error}"))?;
+            eprintln!(
+                "wrote real-provider canary evidence to {} ({} bytes)",
+                export.path.display(),
+                export.bytes
+            );
+        }
+        eprintln!("{}", serde_json::to_string_pretty(&canary_evidence)?);
+        canary_evidence
+            .require_passed()
+            .map_err(|error| anyhow::anyhow!("{error}"))?;
+    }
     let report = tokio_runtime.block_on(runtime.run_sessions(session_specs));
     if args.hold_ms > 0 {
         thread::sleep(Duration::from_millis(args.hold_ms));
@@ -234,143 +302,7 @@ pub(crate) fn run_job_concurrent_with_events(
     job: ReviewRunJobV1,
     emitter: Option<Arc<EventEmitter>>,
 ) -> Result<ConcurrentRunReport> {
-    validate_job(&job)?;
-    let registry = Arc::new(
-        ToolRegistry::review_defaults()
-            .map_err(|error| anyhow::anyhow!("failed to build tool registry: {error}"))?,
-    );
-    let mut limits = RuntimeLimits::standard(
-        job.budgets.max_active_sessions.max(1),
-        job.path_policy.max_file_bytes,
-        job.path_policy.max_search_results,
-    );
-    limits.max_tool_calls_per_turn = 4;
-    limits.max_model_concurrency_global = job.budgets.max_active_sessions.max(1);
-    let limits = Arc::new(limits);
-    let snapshot = RepoSnapshot::build(&job.repo.worktree_root, &job.path_policy, &job.change)
-        .map_err(|error| anyhow::anyhow!("{error}"))?;
-    let tools = Arc::new(
-        ToolEngine::with_registry(
-            Arc::clone(&snapshot),
-            Arc::clone(&limits),
-            Arc::clone(&registry),
-        )
-        .map_err(|error| anyhow::anyhow!("failed to build concurrent tool engine: {error}"))?,
-    );
-    let base_url = std::env::var("OAI_BASE_URL")
-        .or_else(|_| std::env::var("OPENAI_BASE_URL"))
-        .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
-    let router = ProfileModelRouter::from_profiles(
-        &job.model_profiles,
-        job.default_model_profile_id.clone(),
-        base_url,
-        Arc::new(ModelLimiter::new(job.budgets.max_active_sessions.max(1))),
-        registry,
-    )
-    .map_err(|error| anyhow::anyhow!("{error}"))?;
-    let runtime = ConcurrentJobRuntime {
-        snapshot,
-        model_router: Arc::new(router),
-        tools,
-        limits,
-        review_revision_id: job.change.head_revision_id.clone(),
-        emitter: emitter.clone(),
-    };
-    let session_specs = effective_personas(&job)
-        .into_iter()
-        .map(|persona| ConcurrentSessionSpec {
-            scope: SessionScope {
-                id: SessionId(persona.id),
-                role: persona.role,
-                objective: persona.objective,
-                model_profile_id: persona
-                    .model_profile_id
-                    .or_else(|| Some(job.default_model_profile_id.clone())),
-                capabilities: capabilities_from_mask(persona.allowed_tools),
-                budget: persona.budget,
-            },
-        })
-        .collect::<Vec<_>>();
-    if let Some(emitter) = &emitter {
-        emitter.emit(EventRecord::new(
-            EventLevel::Info,
-            EventType::RunStarted,
-            serde_json::json!({
-            "projectId": job.project_id,
-            "sessions": session_specs.len(),
-            "runtime": "concurrent"
-            }),
-        ));
-    }
-    let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(num_cpus::get().clamp(2, 8))
-        .enable_all()
-        .build()
-        .context("failed to build tokio runtime")?;
-    let report = tokio_runtime.block_on(runtime.run_sessions(session_specs));
-    let findings = runtime.tools.findings.all();
-    let outcome = concurrent_review_outcome(&report, findings.len());
-    let result = ReviewRunResultV1 {
-        schema_version: SCHEMA_VERSION,
-        run_id: job.run_id,
-        attempt: job.attempt,
-        runtime: ReviewRuntimeV1::Concurrent,
-        outcome,
-        publishability: if report.completed_sessions == report.sessions {
-            Publishability::Publishable
-        } else {
-            Publishability::DiagnosticOnly
-        },
-        sessions: report.sessions,
-        completed_sessions: report.completed_sessions,
-        findings,
-        tool_counts: report.tool_counts,
-        model_calls: report.model_calls,
-        tokens: TokenUsage {
-            input_tokens: report.input_tokens,
-            output_tokens: report.output_tokens,
-            total_tokens: report.total_tokens,
-        },
-        artifact_stats: ArtifactStats {
-            artifacts: report.artifacts,
-            artifact_bytes: report.artifact_bytes,
-            content_refs: report.artifacts,
-        },
-        elapsed_ms: report.elapsed_ms,
-    };
-    if let Some(emitter) = &emitter {
-        emitter.emit(EventRecord::new(
-            EventLevel::Info,
-            EventType::RunFinished,
-            serde_json::json!(result),
-        ));
-    }
-    Ok(report)
-}
-
-fn concurrent_review_outcome(report: &ConcurrentRunReport, findings: usize) -> ReviewOutcomeV1 {
-    if report.completed_sessions < report.sessions {
-        ReviewOutcomeV1::FailedPartial
-    } else if findings > 0 {
-        ReviewOutcomeV1::CompletedWithFindings
-    } else {
-        ReviewOutcomeV1::CompletedNoFindings
-    }
-}
-
-pub(crate) fn capabilities_from_mask(mask: ToolMask) -> CapabilitySet {
-    let mut capabilities = CapabilitySet {
-        // Preserve sync runtime path semantics for the ReviewRunJobV1 bridge:
-        // tool arguments are repo-relative, while persona cwd is prompt context.
-        fs_scope: FsScope::repo_root(),
-        tool_grants: Default::default(),
-    };
-    for &tool in ToolName::review_read_only_tools() {
-        if tool_allowed(mask, tool) {
-            capabilities.grant(ToolId::from(tool), ToolGrant::allow_review_read_only());
-        }
-    }
-    capabilities
+    crate::reviewer::run_review_job_with_events(job, emitter)
 }
 
 fn run_concurrent(
@@ -401,9 +333,10 @@ fn run_concurrent(
         snapshot,
         model_router,
         tools,
+        policy: Arc::new(ReviewerPolicy::new()),
         limits,
         review_revision_id: change.head_revision_id.clone(),
-        emitter: None,
+        events: RuntimeEventDispatcher::none(),
     };
     let session_specs = (0..sessions)
         .map(|index| ConcurrentSessionSpec {
@@ -412,6 +345,7 @@ fn run_concurrent(
                 role: Role::for_index(index),
                 objective: "Gather diff, file, and search evidence with concurrent tools."
                     .to_string(),
+                snapshot_id: None,
                 model_profile_id: Some("mock".to_string()),
                 capabilities: CapabilitySet::review_read_only(),
                 budget: AgentBudget {
@@ -465,6 +399,7 @@ fn run_serial_baseline(
             id: SessionId(format!("serial-baseline-session-{index}")),
             role: Role::for_index(index),
             objective: "Gather diff, file, and search evidence with serial tools.".to_string(),
+            snapshot_id: None,
             model_profile_id: Some("mock".to_string()),
             capabilities: CapabilitySet::review_read_only(),
             budget: AgentBudget {
@@ -550,6 +485,9 @@ fn run_serial_baseline(
         artifact_bytes,
         counters,
         tool_metrics: Default::default(),
+        provider_health: Vec::new(),
+        snapshot_metrics: Vec::new(),
+        model_metrics: Default::default(),
         terminal_diagnostics: (0..completed_sessions)
             .map(|index| SessionTerminalDiagnostic {
                 session_id: format!("serial-baseline-session-{index}"),
