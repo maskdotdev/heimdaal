@@ -3,10 +3,15 @@ import { createInterface, type Interface } from "node:readline";
 
 import {
   RUNNER_PROTOCOL_VERSION,
+  type JsonRpcRequest,
   type JsonRpcNotification,
   type JsonRpcResponse,
+  type ModelCompleteHandler,
+  type ModelCompleteRequest,
   type RunCancelResult,
   type RunStatusResult,
+  type ToolDefinition,
+  type ToolExecuteRequest,
   type RunnerArtifactExportResult,
   type RunnerArtifactReadResult,
   type RunnerArtifactView,
@@ -22,6 +27,11 @@ export interface RunnerProcessOptions {
   cwd?: string;
   clientName?: string;
   clientVersion?: string;
+}
+
+export interface RunnerCallbackHandlers {
+  model?: ModelCompleteHandler;
+  tools?: ToolDefinition[];
 }
 
 export class RunnerProtocolError extends Error {
@@ -46,6 +56,7 @@ export class RunnerProcess {
   >();
   private readonly stderrChunks: string[] = [];
   private readonly notifications: JsonRpcNotification[] = [];
+  private callbacks: RunnerCallbackHandlers = {};
 
   private constructor(
     private readonly child: ChildProcessWithoutNullStreams,
@@ -96,11 +107,18 @@ export class RunnerProcess {
     return this.request<RunnerProtocolSchema>("runner.schema.export");
   }
 
-  async startRun(params: unknown): Promise<{
+  async startRun(
+    params: unknown,
+    callbacks: RunnerCallbackHandlers = {},
+  ): Promise<{
     result: RunnerRunResult;
     notifications: JsonRpcNotification[];
   }> {
-    return this.requestWithNotifications<RunnerRunResult>("run.start", params);
+    return this.requestWithNotifications<RunnerRunResult>(
+      "run.start",
+      params,
+      callbacks,
+    );
   }
 
   async runStatus(runId: string): Promise<RunStatusResult> {
@@ -165,13 +183,20 @@ export class RunnerProcess {
   async requestWithNotifications<TResult>(
     method: string,
     params?: unknown,
+    callbacks: RunnerCallbackHandlers = {},
   ): Promise<{ result: TResult; notifications: JsonRpcNotification[] }> {
     const start = this.notifications.length;
-    const result = await this.request<TResult>(method, params);
-    return {
-      result,
-      notifications: this.notifications.slice(start),
-    };
+    const previous = this.callbacks;
+    this.callbacks = callbacks;
+    try {
+      const result = await this.request<TResult>(method, params);
+      return {
+        result,
+        notifications: this.notifications.slice(start),
+      };
+    } finally {
+      this.callbacks = previous;
+    }
   }
 
   async close(): Promise<void> {
@@ -187,11 +212,16 @@ export class RunnerProcess {
   }
 
   private handleLine(line: string): void {
-    let response: JsonRpcResponse;
+    let response: JsonRpcResponse & Partial<JsonRpcRequest>;
     try {
-      response = JSON.parse(line) as JsonRpcResponse;
+      response = JSON.parse(line) as JsonRpcResponse & Partial<JsonRpcRequest>;
     } catch (error) {
       throw new RunnerProtocolError(`Invalid runner JSON: ${String(error)}`);
+    }
+
+    if (response.method && response.id !== undefined && response.id !== null) {
+      void this.handleRunnerRequest(response as JsonRpcRequest);
+      return;
     }
 
     if (response.id === undefined || response.id === null) {
@@ -218,5 +248,66 @@ export class RunnerProcess {
       return;
     }
     pending.resolve(response.result);
+  }
+
+  private async handleRunnerRequest(request: JsonRpcRequest): Promise<void> {
+    try {
+      switch (request.method) {
+        case "model.complete": {
+          if (!this.callbacks.model) {
+            throw new RunnerProtocolError(
+              "No model callback registered",
+              -32601,
+              "method_not_found",
+            );
+          }
+          const result = await this.callbacks.model(
+            request.params as ModelCompleteRequest,
+          );
+          this.writeJsonRpc({ jsonrpc: "2.0", id: request.id, result });
+          return;
+        }
+        case "tool.execute": {
+          const params = request.params as ToolExecuteRequest;
+          const tool = this.callbacks.tools?.find(
+            (candidate) => candidate.id === params.toolId,
+          );
+          if (!tool) {
+            throw new RunnerProtocolError(
+              `No tool callback registered for ${params.toolId}`,
+              -32601,
+              "method_not_found",
+            );
+          }
+          const result = await tool.execute(params);
+          this.writeJsonRpc({ jsonrpc: "2.0", id: request.id, result });
+          return;
+        }
+        default:
+          throw new RunnerProtocolError(
+            `Unsupported runner callback ${request.method}`,
+            -32601,
+            "method_not_found",
+          );
+      }
+    } catch (error) {
+      const protocolError =
+        error instanceof RunnerProtocolError
+          ? error
+          : new RunnerProtocolError(String(error), -32002, "runner_error");
+      this.writeJsonRpc({
+        jsonrpc: "2.0",
+        id: request.id,
+        error: {
+          code: protocolError.code ?? -32002,
+          message: protocolError.message,
+          data: { kind: protocolError.kind ?? "runner_error" },
+        },
+      });
+    }
+  }
+
+  private writeJsonRpc(frame: unknown): void {
+    this.child.stdin.write(`${JSON.stringify(frame)}\n`);
   }
 }

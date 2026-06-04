@@ -22,13 +22,16 @@ Implemented in this slice:
   status with deterministic review execution over the reviewer facade.
 - Rust `artifact.read`, `artifact.export`, and `snapshot.readText` backed by
   stored reviewer artifacts and snapshot readers.
-- `event.review`, `run.finished`, and `run.failed` notifications.
+- Runner-to-SDK `model.complete` and `tool.execute` callbacks.
+- `event.review`, `event.runtime`, `run.finished`, and `run.failed`
+  notifications.
 - Protocol fixtures for handshake and schema metadata.
-- TypeScript SDK handshake/check/schema/review/resource client.
-- Python SDK handshake/check/schema/review/resource client.
+- TypeScript SDK handshake/check/schema/review/resource/callback client.
+- Python SDK handshake/check/schema/review/resource/callback client.
+- Custom model/tool callback examples for TypeScript and Python.
 
 Reserved for the next slice:
 
-- model callbacks
-- tool callbacks
-- advanced runtime event streaming
+- Non-terminal asynchronous `run.start` handles.
+- Active cancellation for in-flight runs.
+- Binary packaging and platform-specific runner downloads.

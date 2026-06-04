@@ -16,8 +16,12 @@ Current implemented SDK surface:
 - Read `run.status`, `run.result`, and terminal `run.cancel` status.
 - Read/export stored artifacts with `artifact.read` and `artifact.export`.
 - Read captured snapshot text with `snapshot.readText`.
+- Register host-supplied model callbacks with `model.complete`.
+- Register host-supplied read-only tools with `tool.execute`.
 - Capture `event.review` notifications and expose them through an async
   iterator.
+- Capture `event.runtime` notifications and expose them through an async
+  iterator.
 
-Full host-supplied model and tool callbacks are reserved for the next runner
-slice.
+See `examples/python/custom_model_tool.py` for a callback model plus custom
+tool run.

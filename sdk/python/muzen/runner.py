@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 from asyncio.subprocess import PIPE, Process
 from typing import Any
 
-from .protocol import RUNNER_PROTOCOL_VERSION, JsonRpcResponse
+from .protocol import (
+    RUNNER_PROTOCOL_VERSION,
+    JsonRpcResponse,
+    ModelCompleteHandler,
+    ToolDefinition,
+)
 
 
 class RunnerProtocolError(RuntimeError):
@@ -22,6 +28,8 @@ class RunnerProcess:
         self._next_id = 1
         self._pending: dict[str, asyncio.Future[Any]] = {}
         self._notifications: list[dict[str, Any]] = []
+        self._model_callback: ModelCompleteHandler | None = None
+        self._tool_callbacks: dict[str, ToolDefinition] = {}
         self._reader_task = asyncio.create_task(self._read_stdout())
 
     @classmethod
@@ -63,8 +71,19 @@ class RunnerProcess:
     async def schema(self) -> dict[str, Any]:
         return await self.request("runner.schema.export")
 
-    async def start_run(self, params: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        return await self.request_with_notifications("run.start", params)
+    async def start_run(
+        self,
+        params: dict[str, Any],
+        *,
+        model: ModelCompleteHandler | None = None,
+        tools: list[ToolDefinition] | None = None,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        return await self.request_with_notifications(
+            "run.start",
+            params,
+            model=model,
+            tools=tools,
+        )
 
     async def run_status(self, run_id: str) -> dict[str, Any]:
         return await self.request("run.status", {"runId": run_id})
@@ -147,11 +166,24 @@ class RunnerProcess:
         return await future
 
     async def request_with_notifications(
-        self, method: str, params: Any | None = None
+        self,
+        method: str,
+        params: Any | None = None,
+        *,
+        model: ModelCompleteHandler | None = None,
+        tools: list[ToolDefinition] | None = None,
     ) -> tuple[Any, list[dict[str, Any]]]:
         start = len(self._notifications)
-        result = await self.request(method, params)
-        return result, self._notifications[start:]
+        previous_model = self._model_callback
+        previous_tools = self._tool_callbacks
+        self._model_callback = model
+        self._tool_callbacks = {tool.id: tool for tool in tools or []}
+        try:
+            result = await self.request(method, params)
+            return result, self._notifications[start:]
+        finally:
+            self._model_callback = previous_model
+            self._tool_callbacks = previous_tools
 
     async def close(self) -> None:
         if self._process.stdin is not None:
@@ -171,16 +203,19 @@ class RunnerProcess:
             line = await self._process.stdout.readline()
             if not line:
                 break
-            self._handle_response(json.loads(line.decode("utf-8")))
+            await self._handle_response(json.loads(line.decode("utf-8")))
         for future in self._pending.values():
             if not future.done():
                 future.set_exception(RunnerProtocolError("muzen-runner exited"))
         self._pending.clear()
 
-    def _handle_response(self, response: JsonRpcResponse) -> None:
+    async def _handle_response(self, response: JsonRpcResponse) -> None:
         response_id = response.get("id")
+        method = response.get("method")
+        if response_id is not None and isinstance(method, str):
+            await self._handle_runner_request(response)
+            return
         if response_id is None:
-            method = response.get("method")  # type: ignore[typeddict-item]
             if isinstance(method, str):
                 self._notifications.append(dict(response))
             return
@@ -199,3 +234,66 @@ class RunnerProcess:
             )
             return
         future.set_result(response.get("result"))
+
+    async def _handle_runner_request(self, request: JsonRpcResponse) -> None:
+        request_id = request.get("id")
+        method = request.get("method")
+        try:
+            if method == "model.complete":
+                if self._model_callback is None:
+                    raise RunnerProtocolError(
+                        "No model callback registered",
+                        code=-32601,
+                        kind="method_not_found",
+                    )
+                result = self._model_callback(request.get("params", {}))
+                if inspect.isawaitable(result):
+                    result = await result
+                await self._write_frame({"jsonrpc": "2.0", "id": request_id, "result": result})
+                return
+            if method == "tool.execute":
+                params = request.get("params", {})
+                tool_id = params.get("toolId") if isinstance(params, dict) else None
+                tool = self._tool_callbacks.get(tool_id) if isinstance(tool_id, str) else None
+                if tool is None:
+                    raise RunnerProtocolError(
+                        f"No tool callback registered for {tool_id}",
+                        code=-32601,
+                        kind="method_not_found",
+                    )
+                result = tool.execute(params)
+                if inspect.isawaitable(result):
+                    result = await result
+                await self._write_frame({"jsonrpc": "2.0", "id": request_id, "result": result})
+                return
+            raise RunnerProtocolError(
+                f"Unsupported runner callback {method}",
+                code=-32601,
+                kind="method_not_found",
+            )
+        except Exception as error:
+            if isinstance(error, RunnerProtocolError):
+                code = error.code or -32002
+                kind = error.kind or "runner_error"
+                message = str(error)
+            else:
+                code = -32002
+                kind = "runner_error"
+                message = str(error)
+            await self._write_frame(
+                {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {
+                        "code": code,
+                        "message": message,
+                        "data": {"kind": kind},
+                    },
+                }
+            )
+
+    async def _write_frame(self, frame: dict[str, Any]) -> None:
+        if self._process.stdin is None:
+            raise RunnerProtocolError("muzen-runner stdin is closed")
+        self._process.stdin.write(json.dumps(frame).encode("utf-8") + b"\n")
+        await self._process.stdin.drain()

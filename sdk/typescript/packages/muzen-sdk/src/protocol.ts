@@ -102,12 +102,95 @@ export interface ReviewRequest {
   repo: string;
   changedFiles?: string[];
   sessions: ReviewSessionDraft[];
+  model?: ModelCompleteHandler;
+  tools?: ToolDefinition[];
   limits?: {
     maxActiveSessions?: number;
     maxFileBytes?: number;
     maxSearchMatches?: number;
   };
 }
+
+export interface ModelCompleteRequest {
+  protocolVersion: typeof RUNNER_PROTOCOL_VERSION;
+  runId: string;
+  sessionId: string;
+  role: Role;
+  objective: string;
+  snapshotId?: string;
+  modelProfileId?: string;
+  turn: number;
+  transcript: TranscriptItem[];
+}
+
+export type TranscriptItem =
+  | { kind: "system"; content: string }
+  | { kind: "user"; content: string }
+  | { kind: "assistant_text"; content: string }
+  | { kind: "assistant_tool_calls"; calls: ModelToolCall[] }
+  | {
+      kind: "tool_result";
+      callId: string;
+      toolId: string;
+      ok: boolean;
+      artifactId?: string;
+      data?: unknown;
+      errorCode?: string;
+    };
+
+export interface ModelCompleteResult {
+  content?: string;
+  toolCalls?: ModelToolCall[];
+  usage?: TokenUsage;
+}
+
+export interface ModelToolCall {
+  callId?: string;
+  toolId: string;
+  arguments?: unknown;
+}
+
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
+export type ModelCompleteHandler = (
+  request: ModelCompleteRequest,
+) => Promise<ModelCompleteResult> | ModelCompleteResult;
+
+export interface ToolDefinition {
+  id: string;
+  description: string;
+  parameters: unknown;
+  cacheable?: boolean;
+  execute: ToolExecuteHandler;
+}
+
+export interface ToolExecuteRequest {
+  protocolVersion: typeof RUNNER_PROTOCOL_VERSION;
+  runId: string;
+  sessionId: string;
+  turn: number;
+  callId: string;
+  toolId: string;
+  snapshotId: string;
+  providerResources: string[];
+  arguments: unknown;
+}
+
+export interface ToolExecuteResult {
+  data?: unknown;
+  artifact?: {
+    key: string;
+    content: string;
+  };
+}
+
+export type ToolExecuteHandler = (
+  request: ToolExecuteRequest,
+) => Promise<ToolExecuteResult> | ToolExecuteResult;
 
 export interface ReviewEventRecord {
   seq: number;
@@ -119,6 +202,13 @@ export interface ReviewEventRecord {
   toolCallId?: string;
   artifactId?: string;
   findingId?: string;
+  event: Record<string, unknown>;
+}
+
+export interface RuntimeEventRecord {
+  seq: number;
+  timestampUtc: string;
+  context: Record<string, unknown>;
   event: Record<string, unknown>;
 }
 

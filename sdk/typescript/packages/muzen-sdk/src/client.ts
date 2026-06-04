@@ -4,9 +4,12 @@ import {
   type ReviewRequest,
   type ReviewSessionDraft,
   type ReviewEventRecord,
+  type RuntimeEventRecord,
   type Role,
   type RunCancelResult,
   type RunStatusResult,
+  type ToolDefinition,
+  type ToolExecuteHandler,
   type RunnerArtifactExportResult,
   type RunnerArtifactReadResult,
   type RunnerArtifactView,
@@ -47,7 +50,17 @@ export class Muzen {
       repo: request.repo,
       changedFiles: request.changedFiles ?? [],
       sessions: request.sessions,
+      model: request.model ? { callback: true } : undefined,
+      tools: (request.tools ?? []).map((tool) => ({
+        id: tool.id,
+        description: tool.description,
+        parameters: tool.parameters,
+        cacheable: tool.cacheable ?? false,
+      })),
       limits: request.limits,
+    }, {
+      model: request.model,
+      tools: request.tools,
     });
     return new ReviewRun(this.runner, started.result, started.notifications);
   }
@@ -160,6 +173,14 @@ export class ReviewRun {
       }
     }
   }
+
+  async *runtimeEvents(): AsyncIterable<RuntimeEventRecord> {
+    for (const notification of this.notifications) {
+      if (notification.method === "event.runtime") {
+        yield notification.params as RuntimeEventRecord;
+      }
+    }
+  }
 }
 
 export function session(
@@ -184,5 +205,21 @@ export function session(
       maxPromptTokens: options.budget?.maxPromptTokens ?? 64_000,
       maxOutputTokens: options.budget?.maxOutputTokens ?? 8_000,
     },
+  };
+}
+
+export function tool(
+  id: string,
+  description: string,
+  parameters: unknown,
+  execute: ToolExecuteHandler,
+  options: { cacheable?: boolean } = {},
+): ToolDefinition {
+  return {
+    id,
+    description,
+    parameters,
+    execute,
+    cacheable: options.cacheable,
   };
 }

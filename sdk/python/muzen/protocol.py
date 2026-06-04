@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypedDict
+from collections.abc import Awaitable, Callable
+from typing import Any, Literal, TypedDict, TypeAlias
 
 RUNNER_PROTOCOL_VERSION: Literal["muzen.runner.v1"] = "muzen.runner.v1"
 
@@ -19,8 +20,48 @@ class JsonRpcErrorPayload(TypedDict, total=False):
 class JsonRpcResponse(TypedDict, total=False):
     jsonrpc: Literal["2.0"]
     id: str | int | None
+    method: str
+    params: Any
     result: Any
     error: JsonRpcErrorPayload
+
+
+ModelCompleteHandler: TypeAlias = Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]]
+ToolExecuteHandler: TypeAlias = Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class ToolDefinition:
+    id: str
+    description: str
+    parameters: Any
+    execute: ToolExecuteHandler
+    cacheable: bool = False
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "description": self.description,
+            "parameters": self.parameters,
+            "cacheable": self.cacheable,
+        }
+
+
+def tool(
+    id: str,
+    description: str,
+    parameters: Any,
+    execute: ToolExecuteHandler,
+    *,
+    cacheable: bool = False,
+) -> ToolDefinition:
+    return ToolDefinition(
+        id=id,
+        description=description,
+        parameters=parameters,
+        execute=execute,
+        cacheable=cacheable,
+    )
 
 
 @dataclass(frozen=True)

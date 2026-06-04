@@ -3,7 +3,12 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any
 
-from .protocol import RUNNER_PROTOCOL_VERSION, ReviewSession
+from .protocol import (
+    RUNNER_PROTOCOL_VERSION,
+    ModelCompleteHandler,
+    ReviewSession,
+    ToolDefinition,
+)
 from .runner import RunnerProcess
 
 
@@ -41,6 +46,8 @@ class Client:
         sessions: list[ReviewSession],
         run_id: str | None = None,
         changed_files: list[str] | None = None,
+        model: ModelCompleteHandler | None = None,
+        tools: list[ToolDefinition] | None = None,
         limits: dict[str, Any] | None = None,
     ) -> "ReviewRun":
         result, notifications = await self._runner.start_run(
@@ -50,8 +57,12 @@ class Client:
                 "repo": repo,
                 "changedFiles": changed_files or [],
                 "sessions": [session.to_json() for session in sessions],
+                "model": {"callback": True} if model is not None else None,
+                "tools": [tool.to_json() for tool in tools or []],
                 "limits": limits,
-            }
+            },
+            model=model,
+            tools=tools,
         )
         return ReviewRun(self._runner, result, notifications)
 
@@ -174,6 +185,13 @@ class ReviewRun:
     async def events(self) -> AsyncIterator[dict[str, Any]]:
         for notification in self._notifications:
             if notification.get("method") == "event.review":
+                params = notification.get("params")
+                if isinstance(params, dict):
+                    yield params
+
+    async def runtime_events(self) -> AsyncIterator[dict[str, Any]]:
+        for notification in self._notifications:
+            if notification.get("method") == "event.runtime":
                 params = notification.get("params")
                 if isinstance(params, dict):
                     yield params
